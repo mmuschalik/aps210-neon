@@ -1,0 +1,1005 @@
+// Prudence form spec. Source of truth: edit this file, not code.
+// Source: ARS 210.0 (F2023L00417) forms and instructions; APS 210 (July 2025).
+// Format with: cargo run -p arf210 -- fmt <form>
+
+@reporting("ARS 210.0", version: "2023-03-31")
+form Arf210_6("ARF 210.6", "Net Stable Funding Ratio") {
+  columns b0, b1, b2, f0, f1, f2, amount, factor, calc, value
+  input b0
+
+  item "1" "Regulatory capital before adjustments, excl. Tier 2 with residual maturity < 1y" {
+    b2   = input
+    f2   = 1
+    calc = [1:b2] * [1:f2]
+  } @cite("APS 210 Att C para 11(a)")
+
+  item "2" "Capital instruments not included above with residual maturity >= 1y" {
+    b2   = input
+    f2   = 1
+    calc = [2:b2] * [2:f2]
+  } @cite("APS 210 Att C para 11(b)")
+
+  item "3" "Stable demand and term deposits from retail and SME customers" {
+    b0   = input
+    f0   = 0.95
+    b1   = input
+    f1   = 0.95
+    b2   = input
+    f2   = 1
+    calc = [3:b0] * [3:f0] + [3:b1] * [3:f1] + [3:b2] * [3:f2]
+  } @cite("APS 210 Att C para 12(a)")
+
+  item "4" "Intermediated deposits, stable, ADI irreplaceable without 12 months' notice" {
+    b0   = input
+    f0   = 0.95
+    b1   = input
+    f1   = 0.95
+    b2   = input
+    f2   = 1
+    calc = [4:b0] * [4:f0] + [4:b1] * [4:f1] + [4:b2] * [4:f2]
+  } @cite("APS 210 Att C para 12(b)")
+
+  item "5" "Less stable demand and term deposits from retail and SME customers" {
+    b0   = input
+    f0   = 0.9
+    b1   = input
+    f1   = 0.9
+    b2   = input
+    f2   = 1
+    calc = [5:b0] * [5:f0] + [5:b1] * [5:f1] + [5:b2] * [5:f2]
+  } @cite("APS 210 Att C para 13(a)")
+
+  item "6" "Intermediated deposits, less stable, ADI irreplaceable without 12 months' notice" {
+    b0   = input
+    f0   = 0.9
+    b1   = input
+    f1   = 0.9
+    b2   = input
+    f2   = 1
+    calc = [6:b0] * [6:f0] + [6:b1] * [6:f1] + [6:b2] * [6:f2]
+  } @cite("APS 210 Att C para 13(b)")
+
+  item "7" "Intermediated deposits, ADI irreplaceable without 6 months' notice" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [7:b0] * [7:f0] + [7:b1] * [7:f1] + [7:b2] * [7:f2]
+  } @cite("APS 210 Att C para 14(d)")
+
+  item "8" "Operational deposits" {
+    b0   = [8.1:amount] + [8.2:amount]
+    f0   = 0.5
+    calc = [8:b0] * [8:f0]
+  } @cite("APS 210 Att C para 14(b)-(c)")
+
+  item "8.1" "Superannuation fund deposits" {
+    amount = input
+  }
+
+  item "8.2" "All other customers" {
+    amount = input
+  }
+
+  item "9" "Funding from non-financial corporates" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [9:b0] * [9:f0] + [9:b1] * [9:f1] + [9:b2] * [9:f2]
+  } @cite("APS 210 Att C para 14(a)")
+
+  item "10" "Funding from sovereigns/PSEs/MDBs/NDBs" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [10:b0] * [10:f0] + [10:b1] * [10:f1] + [10:b2] * [10:f2]
+  } @cite("APS 210 Att C para 14(e)")
+
+  item "11" "Funding from central banks" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [11:b0] * [11:f0] + [11:b1] * [11:f1] + [11:b2] * [11:f2]
+  } @cite("APS 210 Att C paras 14(f), 15(a)")
+
+  item "12" "Funding from other legal entities" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [12:b0] * [12:f0] + [12:b1] * [12:f1] + [12:b2] * [12:f2]
+  } @cite("APS 210 Att C paras 14(f), 15(a)")
+
+  item "13" "NSFR derivative liabilities net of NSFR derivative assets" {
+    amount = max([13.1:amount] - [40.1:amount], 0)
+    factor = 0
+    calc   = [13:amount] * [13:factor]
+  } @cite("ARS p.148 formula; APS 210 Att C para 15(c)")
+
+  item "13.1" "NSFR derivative liabilities" {
+    amount = [13.1.1:amount] - [13.1.2:amount]
+  } @cite("ARS p.148 formula")
+
+  item "13.1.1" "Derivative liabilities gross of variation margin posted" {
+    amount = input
+  }
+
+  item "13.1.2" "Total variation margin posted" {
+    amount = input
+  }
+
+  item "14" "Variation margin received that cannot be included in NSFR derivative assets" {
+    b0   = input
+    f0   = 0
+    calc = [14:b0] * [14:f0]
+  }
+
+  item "15" "Total initial margin received" {
+    b0   = input
+    f0   = 0
+    calc = [15:b0] * [15:f0]
+  }
+
+  item "16" "Other liability and equity categories" {}
+
+  item "16.1" "Deferred tax liabilities" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [16.1:b0] * [16.1:f0] + [16.1:b1] * [16.1:f1] + [16.1:b2] * [16.1:f2]
+  }
+
+  item "16.2" "Minority interests" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [16.2:b0] * [16.2:f0] + [16.2:b1] * [16.2:f1] + [16.2:b2] * [16.2:f2]
+  }
+
+  item "16.3" "Trade date payables" {
+    b0   = input
+    f0   = 0
+    calc = [16.3:b0] * [16.3:f0]
+  }
+
+  item "16.4" "All other liabilities and equity items not included above" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [16.4:b0] * [16.4:f0] + [16.4:b1] * [16.4:f1] + [16.4:b2] * [16.4:f2]
+  }
+
+  item "17" "Interdependent liabilities" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0
+    b2   = input
+    f2   = 0
+    calc = [17:b0] * [17:f0] + [17:b1] * [17:f1] + [17:b2] * [17:f2]
+  } @cite("APS 210 Att C paras 38-40")
+
+  item "18" "Other liability and equity items where APRA has determined an alternative ASF factor" {
+    b0   = input
+    f0   = input
+    b1   = input
+    f1   = input
+    b2   = input
+    f2   = input
+    calc = [18:b0] * [18:f0] + [18:b1] * [18:f1] + [18:b2] * [18:f2]
+  }
+
+  item "19" "Total ASF" {
+    calc = [1:calc] + [2:calc] + [3:calc] + [4:calc] + [5:calc] + [6:calc] + [7:calc] + [8:calc] + [9:calc] + [10:calc] + [11:calc] + [12:calc] + [13:calc] + [14:calc] + [15:calc] + [16.1:calc] + [16.2:calc] + [16.3:calc] + [16.4:calc] + [17:calc] + [18:calc]
+  } @cite("ARS p.149")
+
+  item "20" "Notes and coins" {
+    b0   = input
+    f0   = 0
+    calc = [20:b0] * [20:f0]
+  }
+
+  item "21" "Central bank reserves and balances" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0
+    b2   = input
+    f2   = 0
+    calc = [21:b0] * [21:f0] + [21:b1] * [21:f1] + [21:b2] * [21:f2]
+  }
+
+  item "22" "Trade date receivables" {
+    b0   = input
+    f0   = 0
+    calc = [22:b0] * [22:f0]
+  }
+
+  item "23" "Loans to FIs secured by HQLA1, collateral freely re-hypothecable" {}
+
+  item "23.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [23.1:b0] * [23.1:f0] + [23.1:b1] * [23.1:f1] + [23.1:b2] * [23.1:f2]
+  } @cite("APS 210 Att C para 31")
+
+  item "23.2" "Encumbered" {}
+
+  item "23.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [23.2.1:b0] * [23.2.1:f0] + [23.2.1:b1] * [23.2.1:f1] + [23.2.1:b2] * [23.2.1:f2]
+  } @cite("APS 210 Att C para 31; APS 210 Att C para 23")
+
+  item "23.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [23.2.2:b0] * [23.2.2:f0] + [23.2.2:b1] * [23.2.2:f1] + [23.2.2:b2] * [23.2.2:f2]
+  } @cite("APS 210 Att C para 31; APS 210 Att C para 23")
+
+  item "23.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [23.2.3:b0] * [23.2.3:f0] + [23.2.3:b1] * [23.2.3:f1] + [23.2.3:b2] * [23.2.3:f2]
+  } @cite("APS 210 Att C para 31; APS 210 Att C para 23")
+
+  item "24" "All other loans to financial institutions" {}
+
+  item "24.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.15
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [24.1:b0] * [24.1:f0] + [24.1:b1] * [24.1:f1] + [24.1:b2] * [24.1:f2]
+  } @cite("APS 210 Att C para 33(b)")
+
+  item "24.2" "Encumbered" {}
+
+  item "24.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.15
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [24.2.1:b0] * [24.2.1:f0] + [24.2.1:b1] * [24.2.1:f1] + [24.2.1:b2] * [24.2.1:f2]
+  } @cite("APS 210 Att C para 33(b); APS 210 Att C para 23")
+
+  item "24.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [24.2.2:b0] * [24.2.2:f0] + [24.2.2:b1] * [24.2.2:f1] + [24.2.2:b2] * [24.2.2:f2]
+  } @cite("APS 210 Att C para 33(b); APS 210 Att C para 23")
+
+  item "24.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [24.2.3:b0] * [24.2.3:f0] + [24.2.3:b1] * [24.2.3:f1] + [24.2.3:b2] * [24.2.3:f2]
+  } @cite("APS 210 Att C para 33(b); APS 210 Att C para 23")
+
+  item "25" "HQLA1 assets not included above" {}
+
+  item "25.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.05
+    b1   = input
+    f1   = 0.05
+    b2   = input
+    f2   = 0.05
+    calc = [25.1:b0] * [25.1:f0] + [25.1:b1] * [25.1:f1] + [25.1:b2] * [25.1:f2]
+  } @cite("APS 210 Att C para 30")
+
+  item "25.2" "Encumbered" {}
+
+  item "25.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.05
+    b1   = input
+    f1   = 0.05
+    b2   = input
+    f2   = 0.05
+    calc = [25.2.1:b0] * [25.2.1:f0] + [25.2.1:b1] * [25.2.1:f1] + [25.2.1:b2] * [25.2.1:f2]
+  } @cite("APS 210 Att C para 30; APS 210 Att C para 23")
+
+  item "25.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [25.2.2:b0] * [25.2.2:f0] + [25.2.2:b1] * [25.2.2:f1] + [25.2.2:b2] * [25.2.2:f2]
+  } @cite("APS 210 Att C para 30; APS 210 Att C para 23")
+
+  item "25.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [25.2.3:b0] * [25.2.3:f0] + [25.2.3:b1] * [25.2.3:f1] + [25.2.3:b2] * [25.2.3:f2]
+  } @cite("APS 210 Att C para 30; APS 210 Att C para 23")
+
+  item "26" "CLF-eligible third-party debt securities" {}
+
+  item "26.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [26.1:b0] * [26.1:f0] + [26.1:b1] * [26.1:f1] + [26.1:b2] * [26.1:f2]
+  } @cite("APS 210 Att C para 32(a)")
+
+  item "26.2" "Encumbered" {}
+
+  item "26.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [26.2.1:b0] * [26.2.1:f0] + [26.2.1:b1] * [26.2.1:f1] + [26.2.1:b2] * [26.2.1:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "26.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [26.2.2:b0] * [26.2.2:f0] + [26.2.2:b1] * [26.2.2:f1] + [26.2.2:b2] * [26.2.2:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "26.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [26.2.3:b0] * [26.2.3:f0] + [26.2.3:b1] * [26.2.3:f1] + [26.2.3:b2] * [26.2.3:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "27" "CLF-eligible self-securitised assets" {}
+
+  item "27.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [27.1:b0] * [27.1:f0] + [27.1:b1] * [27.1:f1] + [27.1:b2] * [27.1:f2]
+  } @cite("APS 210 Att C para 32(b)")
+
+  item "27.2" "Encumbered" {}
+
+  item "27.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [27.2.1:b0] * [27.2.1:f0] + [27.2.1:b1] * [27.2.1:f1] + [27.2.1:b2] * [27.2.1:f2]
+  } @cite("APS 210 Att C para 32(b); APS 210 Att C para 23")
+
+  item "27.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [27.2.2:b0] * [27.2.2:f0] + [27.2.2:b1] * [27.2.2:f1] + [27.2.2:b2] * [27.2.2:f2]
+  } @cite("APS 210 Att C para 32(b); APS 210 Att C para 23")
+
+  item "27.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [27.2.3:b0] * [27.2.3:f0] + [27.2.3:b1] * [27.2.3:f1] + [27.2.3:b2] * [27.2.3:f2]
+  } @cite("APS 210 Att C para 32(b); APS 210 Att C para 23")
+
+  item "28" "Other jurisdictions' ALA" {}
+
+  item "28.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [28.1:b0] * [28.1:f0] + [28.1:b1] * [28.1:f1] + [28.1:b2] * [28.1:f2]
+  } @cite("APS 210 Att C para 32(a)")
+
+  item "28.2" "Encumbered" {}
+
+  item "28.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [28.2.1:b0] * [28.2.1:f0] + [28.2.1:b1] * [28.2.1:f1] + [28.2.1:b2] * [28.2.1:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "28.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [28.2.2:b0] * [28.2.2:f0] + [28.2.2:b1] * [28.2.2:f1] + [28.2.2:b2] * [28.2.2:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "28.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [28.2.3:b0] * [28.2.3:f0] + [28.2.3:b1] * [28.2.3:f1] + [28.2.3:b2] * [28.2.3:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "29" "Other LCR assets" {}
+
+  item "29.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [29.1:b0] * [29.1:f0] + [29.1:b1] * [29.1:f1] + [29.1:b2] * [29.1:f2]
+  } @cite("APS 210 Att C para 32(a)")
+
+  item "29.2" "Encumbered" {}
+
+  item "29.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.1
+    b1   = input
+    f1   = 0.1
+    b2   = input
+    f2   = 0.1
+    calc = [29.2.1:b0] * [29.2.1:f0] + [29.2.1:b1] * [29.2.1:f1] + [29.2.1:b2] * [29.2.1:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "29.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [29.2.2:b0] * [29.2.2:f0] + [29.2.2:b1] * [29.2.2:f1] + [29.2.2:b2] * [29.2.2:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "29.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [29.2.3:b0] * [29.2.3:f0] + [29.2.3:b1] * [29.2.3:f1] + [29.2.3:b2] * [29.2.3:f2]
+  } @cite("APS 210 Att C para 32(a); APS 210 Att C para 23")
+
+  item "30" "HQLA2A assets" {}
+
+  item "30.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.15
+    b1   = input
+    f1   = 0.15
+    b2   = input
+    f2   = 0.15
+    calc = [30.1:b0] * [30.1:f0] + [30.1:b1] * [30.1:f1] + [30.1:b2] * [30.1:f2]
+  } @cite("APS 210 Att C para 33(a)")
+
+  item "30.2" "Encumbered" {}
+
+  item "30.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0.15
+    b1   = input
+    f1   = 0.15
+    b2   = input
+    f2   = 0.15
+    calc = [30.2.1:b0] * [30.2.1:f0] + [30.2.1:b1] * [30.2.1:f1] + [30.2.1:b2] * [30.2.1:f2]
+  } @cite("APS 210 Att C para 33(a); APS 210 Att C para 23")
+
+  item "30.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [30.2.2:b0] * [30.2.2:f0] + [30.2.2:b1] * [30.2.2:f1] + [30.2.2:b2] * [30.2.2:f2]
+  } @cite("APS 210 Att C para 33(a); APS 210 Att C para 23")
+
+  item "30.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [30.2.3:b0] * [30.2.3:f0] + [30.2.3:b1] * [30.2.3:f1] + [30.2.3:b2] * [30.2.3:f2]
+  } @cite("APS 210 Att C para 33(a); APS 210 Att C para 23")
+
+  item "31" "HQLA2B assets" {}
+
+  item "31.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [31.1:b0] * [31.1:f0] + [31.1:b1] * [31.1:f1] + [31.1:b2] * [31.1:f2]
+  } @cite("APS 210 Att C para 34(a)")
+
+  item "31.2" "Encumbered" {}
+
+  item "31.2.1" "< 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.5
+    calc = [31.2.1:b0] * [31.2.1:f0] + [31.2.1:b1] * [31.2.1:f1] + [31.2.1:b2] * [31.2.1:f2]
+  } @cite("APS 210 Att C para 34(a); APS 210 Att C para 23")
+
+  item "31.2.2" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [31.2.2:b0] * [31.2.2:f0] + [31.2.2:b1] * [31.2.2:f1] + [31.2.2:b2] * [31.2.2:f2]
+  } @cite("APS 210 Att C para 34(a); APS 210 Att C para 23")
+
+  item "32" "Claims on central banks with residual maturity < 1 year" {}
+
+  item "32.1" "Unencumbered" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0.5
+    calc = [32.1:b0] * [32.1:f0] + [32.1:b1] * [32.1:f1]
+  } @cite("APS 210 Att C paras 29(c), 34(c)")
+
+  item "32.2" "Encumbered" {}
+
+  item "32.2.1" "< 6 months" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0.5
+    calc = [32.2.1:b0] * [32.2.1:f0] + [32.2.1:b1] * [32.2.1:f1]
+  } @cite("APS 210 Att C paras 29(c), 34(c); APS 210 Att C para 23")
+
+  item "32.2.2" ">= 6 months to < 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    calc = [32.2.2:b0] * [32.2.2:f0] + [32.2.2:b1] * [32.2.2:f1]
+  } @cite("APS 210 Att C paras 29(c), 34(c); APS 210 Att C para 23")
+
+  item "32.2.3" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    calc = [32.2.3:b0] * [32.2.3:f0] + [32.2.3:b1] * [32.2.3:f1]
+  } @cite("APS 210 Att C paras 29(c), 34(c); APS 210 Att C para 23")
+
+  item "33" "Operational deposits held at other ADIs" {}
+
+  item "33.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [33.1:b0] * [33.1:f0] + [33.1:b1] * [33.1:f1] + [33.1:b2] * [33.1:f2]
+  } @cite("APS 210 Att C para 34(d)")
+
+  item "33.2" "Encumbered" {}
+
+  item "33.2.1" "< 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 1
+    calc = [33.2.1:b0] * [33.2.1:f0] + [33.2.1:b1] * [33.2.1:f1] + [33.2.1:b2] * [33.2.1:f2]
+  } @cite("APS 210 Att C para 34(d); APS 210 Att C para 23")
+
+  item "33.2.2" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [33.2.2:b0] * [33.2.2:f0] + [33.2.2:b1] * [33.2.2:f1] + [33.2.2:b2] * [33.2.2:f2]
+  } @cite("APS 210 Att C para 34(d); APS 210 Att C para 23")
+
+  item "34" "Australian equities (S&P/ASX200, non-FI)" {}
+
+  item "34.1" "Unencumbered" {
+    b2   = input
+    f2   = 1
+    calc = [34.1:b2] * [34.1:f2]
+  } @cite("APS 210 Att C para 34(e)")
+
+  item "34.2" "Encumbered" {}
+
+  item "34.2.1" "< 1 year" {
+    b2   = input
+    f2   = 0.5
+    calc = [34.2.1:b2] * [34.2.1:f2]
+  } @cite("APS 210 Att C para 34(e); APS 210 Att C para 23")
+
+  item "34.2.2" ">= 1 year" {
+    b2   = input
+    f2   = 1
+    calc = [34.2.2:b2] * [34.2.2:f2]
+  } @cite("APS 210 Att C para 34(e); APS 210 Att C para 23")
+
+  item "35" "Standard residential property loans to individuals, LVR <= 80%" {}
+
+  item "35.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.65
+    calc = [35.1:b0] * [35.1:f0] + [35.1:b1] * [35.1:f1] + [35.1:b2] * [35.1:f2]
+  } @cite("APS 210 Att C para 35(a)")
+
+  item "35.2" "Encumbered" {}
+
+  item "35.2.1" "< 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.65
+    calc = [35.2.1:b0] * [35.2.1:f0] + [35.2.1:b1] * [35.2.1:f1] + [35.2.1:b2] * [35.2.1:f2]
+  } @cite("APS 210 Att C para 35(a); APS 210 Att C para 23")
+
+  item "35.2.2" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [35.2.2:b0] * [35.2.2:f0] + [35.2.2:b1] * [35.2.2:f1] + [35.2.2:b2] * [35.2.2:f2]
+  } @cite("APS 210 Att C para 35(a); APS 210 Att C para 23")
+
+  item "36" "Other loans (excl. FIs) qualifying for <= 35% risk weight" {}
+
+  item "36.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.65
+    calc = [36.1:b0] * [36.1:f0] + [36.1:b1] * [36.1:f1] + [36.1:b2] * [36.1:f2]
+  } @cite("APS 210 Att C para 35(b)")
+
+  item "36.2" "Encumbered" {}
+
+  item "36.2.1" "< 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.65
+    calc = [36.2.1:b0] * [36.2.1:f0] + [36.2.1:b1] * [36.2.1:f1] + [36.2.1:b2] * [36.2.1:f2]
+  } @cite("APS 210 Att C para 35(b); APS 210 Att C para 23")
+
+  item "36.2.2" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [36.2.2:b0] * [36.2.2:f0] + [36.2.2:b1] * [36.2.2:f1] + [36.2.2:b2] * [36.2.2:f2]
+  } @cite("APS 210 Att C para 35(b); APS 210 Att C para 23")
+
+  item "37" "Other performing loans (excl. FIs) not in items 35 or 36" {}
+
+  item "37.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.85
+    calc = [37.1:b0] * [37.1:f0] + [37.1:b1] * [37.1:f1] + [37.1:b2] * [37.1:f2]
+  } @cite("APS 210 Att C para 36(b)")
+
+  item "37.2" "Encumbered" {}
+
+  item "37.2.1" "< 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.85
+    calc = [37.2.1:b0] * [37.2.1:f0] + [37.2.1:b1] * [37.2.1:f1] + [37.2.1:b2] * [37.2.1:f2]
+  } @cite("APS 210 Att C para 36(b); APS 210 Att C para 23")
+
+  item "37.2.2" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [37.2.2:b0] * [37.2.2:f0] + [37.2.2:b1] * [37.2.2:f1] + [37.2.2:b2] * [37.2.2:f2]
+  } @cite("APS 210 Att C para 36(b); APS 210 Att C para 23")
+
+  item "38" "Non-HQLA exchange traded equities, securities and physical commodities" {}
+
+  item "38.1" "Unencumbered" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.85
+    calc = [38.1:b0] * [38.1:f0] + [38.1:b1] * [38.1:f1] + [38.1:b2] * [38.1:f2]
+  } @cite("APS 210 Att C para 36(c)-(d)")
+
+  item "38.2" "Encumbered" {}
+
+  item "38.2.1" "< 1 year" {
+    b0   = input
+    f0   = 0.5
+    b1   = input
+    f1   = 0.5
+    b2   = input
+    f2   = 0.85
+    calc = [38.2.1:b0] * [38.2.1:f0] + [38.2.1:b1] * [38.2.1:f1] + [38.2.1:b2] * [38.2.1:f2]
+  } @cite("APS 210 Att C para 36(c)-(d); APS 210 Att C para 23")
+
+  item "38.2.2" ">= 1 year" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [38.2.2:b0] * [38.2.2:f0] + [38.2.2:b1] * [38.2.2:f1] + [38.2.2:b2] * [38.2.2:f2]
+  } @cite("APS 210 Att C para 36(c)-(d); APS 210 Att C para 23")
+
+  item "39" "Defaulted securities and non-performing loans" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [39:b0] * [39:f0] + [39:b1] * [39:f1] + [39:b2] * [39:f2]
+  }
+
+  item "40" "NSFR derivative assets net of NSFR derivative liabilities" {
+    amount = max([40.1:amount] - [13.1:amount], 0)
+    factor = 1
+    calc   = [40:amount] * [40:factor]
+  } @cite("ARS p.155 formula; APS 210 Att C para 37(b)")
+
+  item "40.1" "NSFR derivative assets" {
+    amount = [40.1.1:amount] - [40.1.2:amount]
+  } @cite("ARS p.155 formula")
+
+  item "40.1.1" "Derivative assets gross of variation margin received" {
+    amount = input
+  }
+
+  item "40.1.2" "Cash variation margin received that can be included in NSFR derivative assets" {
+    amount = input
+  }
+
+  item "41" "Derivative liabilities (20% of gross negative replacement cost)" {
+    amount = 0.2 * [13.1.1:amount]
+    factor = 1
+    calc   = [41:amount] * [41:factor]
+  } @cite("ARS p.155 formula; APS 210 Att C para 37(d)")
+
+  item "42" "Initial margin posted and CCP default fund contributions" {
+    amount = [42.1:amount] + [42.3:amount]
+    factor = 0.85
+    calc   = [42:amount] * [42:factor]
+  } @cite("ARS p.155 formula; APS 210 Att C para 36(a)")
+
+  item "42.1" "Initial margin posted on ADI's own positions" {
+    amount = input
+  }
+
+  item "42.2" "Initial margin posted on behalf of a customer (exempt; memo)" {
+    amount = input
+  }
+
+  item "42.3" "Cash or other assets contributed to the default fund of a CCP" {
+    amount = input
+  }
+
+  item "43" "Items deducted from regulatory capital" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [43:b0] * [43:f0] + [43:b1] * [43:f1] + [43:b2] * [43:f2]
+  }
+
+  item "44" "Interdependent assets" {
+    b0   = input
+    f0   = 0
+    b1   = input
+    f1   = 0
+    b2   = input
+    f2   = 0
+    calc = [44:b0] * [44:f0] + [44:b1] * [44:f1] + [44:b2] * [44:f2]
+  } @cite("APS 210 Att C paras 38-40")
+
+  item "45" "All other assets not included in the above categories" {
+    b0   = input
+    f0   = 1
+    b1   = input
+    f1   = 1
+    b2   = input
+    f2   = 1
+    calc = [45:b0] * [45:f0] + [45:b1] * [45:f1] + [45:b2] * [45:f2]
+  }
+
+  item "46" "Other assets where APRA has determined an alternative RSF factor" {
+    b0   = input
+    f0   = input
+    b1   = input
+    f1   = input
+    b2   = input
+    f2   = input
+    calc = [46:b0] * [46:f0] + [46:b1] * [46:f1] + [46:b2] * [46:f2]
+  }
+
+  item "47" "Total RSF from on-balance sheet assets" {
+    calc = [20:calc] + [21:calc] + [22:calc] + [23.1:calc] + [23.2.1:calc] + [23.2.2:calc] + [23.2.3:calc] + [24.1:calc] + [24.2.1:calc] + [24.2.2:calc] + [24.2.3:calc] + [25.1:calc] + [25.2.1:calc] + [25.2.2:calc] + [25.2.3:calc] + [26.1:calc] + [26.2.1:calc] + [26.2.2:calc] + [26.2.3:calc] + [27.1:calc] + [27.2.1:calc] + [27.2.2:calc] + [27.2.3:calc] + [28.1:calc] + [28.2.1:calc] + [28.2.2:calc] + [28.2.3:calc] + [29.1:calc] + [29.2.1:calc] + [29.2.2:calc] + [29.2.3:calc] + [30.1:calc] + [30.2.1:calc] + [30.2.2:calc] + [30.2.3:calc] + [31.1:calc] + [31.2.1:calc] + [31.2.2:calc] + [32.1:calc] + [32.2.1:calc] + [32.2.2:calc] + [32.2.3:calc] + [33.1:calc] + [33.2.1:calc] + [33.2.2:calc] + [34.1:calc] + [34.2.1:calc] + [34.2.2:calc] + [35.1:calc] + [35.2.1:calc] + [35.2.2:calc] + [36.1:calc] + [36.2.1:calc] + [36.2.2:calc] + [37.1:calc] + [37.2.1:calc] + [37.2.2:calc] + [38.1:calc] + [38.2.1:calc] + [38.2.2:calc] + [39:calc] + [40:calc] + [41:calc] + [42:calc] + [43:calc] + [44:calc] + [45:calc] + [46:calc]
+  }
+
+  item "48" "Irrevocable or conditionally revocable liquidity facilities" {
+    amount = input
+    factor = 0.05
+    calc   = [48:amount] * [48:factor]
+  } @cite("APS 210 Att C Table 1")
+
+  item "49" "Irrevocable or conditionally revocable credit facilities (incl. all mortgage redraw)" {
+    amount = input
+    factor = 0.05
+    calc   = [49:amount] * [49:factor]
+  } @cite("APS 210 Att C Table 1; ARS p.156")
+
+  item "50" "Unconditionally revocable liquidity facilities" {
+    amount = input
+    factor = 0.01
+    calc   = [50:amount] * [50:factor]
+  } @cite("APS 210 Att C Table 1")
+
+  item "51" "Unconditionally revocable credit facilities" {
+    amount = input
+    factor = 0.01
+    calc   = [51:amount] * [51:factor]
+  } @cite("APS 210 Att C Table 1")
+
+  item "52" "Trade finance-related obligations (actual net outflow, last 12 months)" {
+    amount = input
+    factor = 1
+    calc   = [52:amount] * [52:factor]
+  } @cite("APS 210 Att C para 42")
+
+  item "53" "Guarantees and letters of credit unrelated to trade finance (actual net outflow, 12m)" {
+    amount = input
+    factor = 1
+    calc   = [53:amount] * [53:factor]
+  } @cite("APS 210 Att C para 42")
+
+  item "54" "All other off-balance sheet obligations with an APRA-determined RSF factor" {
+    amount = input
+    factor = input
+    calc   = [54:amount] * [54:factor]
+  }
+
+  item "55" "Total RSF from off-balance sheet exposures" {
+    calc = [48:calc] + [49:calc] + [50:calc] + [51:calc] + [52:calc] + [53:calc] + [54:calc]
+  }
+
+  item "56" "Net stable funding ratio" {
+    value = [19:calc] / ([47:calc] + [55:calc])
+  } @cite("ARS p.157 formula (a ratio, not %)")
+
+  check "52>=0" "Item 52: report zero for a net inflow": [52:amount] >= 0 @cite("ARS p.157")
+  check "53>=0" "Item 53: report zero for a net inflow": [53:amount] >= 0 @cite("ARS p.157")
+
+  theorem "derivatives-one-side" "NSFR derivatives are a net liability or a net asset, never both":
+    [13:amount] == 0 || [40:amount] == 0 @cite("APS 210 Att C paras 15(c), 37(b)")
+}

@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/prudence-core", "crates/arf210", "crates/deposits"]
+
+[workspace.package]
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+num-bigint = "0.4"
+num-rational = "0.4"
+num-traits = "0.2"
+num-integer = "0.1"
+serde_json = "1"
+
+# Exact big-integer arithmetic is slow unoptimised; keep tests fast.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.test]
+opt-level = 1

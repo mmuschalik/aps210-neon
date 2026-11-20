@@ -1,0 +1,13 @@
+[package]
+name = "prudence-core"
+version = "0.1.0"
+description = "Prudence core IR: exact-rational expressions over regulatory form cells, parser and evaluator"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+num-bigint.workspace = true
+num-rational.workspace = true
+num-traits.workspace = true
+num-integer.workspace = true

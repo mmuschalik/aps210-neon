@@ -1,0 +1,13 @@
+[package]
+name = "deposits"
+version = "0.1.0"
+description = "Retail and SME deposit classification for APS 210 (LCR outflows, NSFR available stable funding)"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prudence-core = { path = "../prudence-core" }
+arf210 = { path = "../arf210" }
+num-traits.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["std"] }

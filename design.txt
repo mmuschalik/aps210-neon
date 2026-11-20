@@ -1,0 +1,295 @@
+Having read aps-210.pdf (1 July 2025), apg-210.html, and ars-210.0.pdf (all 7 ARF 210 reporting forms and instructions) from scratch—without touching any code—here is a first-
+  principles analysis of what the APS 210 problem actually is, what a bank is really optimising for, and the strongest possible stack (including a purpose-built language/IR) to
+  make it bulletproof.
+  ──────
+  ## 1. What APS 210 Actually Is (Mathematically & Structurally)
+  Superficially, APS 210 looks like weighted sums (HQLA/NCO, ASF/RSF, MLH/Liabilities). In reality, it is a coupled, non-linear, bitemporal, conservation-constrained resource
+  allocation and simulation problem over a bank’s entire balance-sheet graph. The real complexity lives in seven structural properties:
+  1. Multiple coupled regimes over one balance sheet, with deliberate asymmetries
+      • Valuation basis diverges: LCR & MLH use Market Value (with LCR adjusting MV for early close-out cost of price-risk hedges, ars-210.0.pdf p. 39); NSFR uses Accounting
+      Carrying Value net of specific provisions and unincluded GRCL, before capital deductions.
+      • Securitisation scope diverges (aps-210.pdf §5): APS 120 capital-relief SPVs are excluded from MLH & NSFR, but included in LCR, Contractual Maturity Mismatch (ARF 210.3.1/3.
+      2), 3-Year Funding Plan (ARF 210.4), and Daily Liquidity (ARF 210.5).
+      • Maturity conventions invert: Liabilities use earliest possible redemption/option date; assets use latest possible maturity/extension option; amortising instruments split
+      cashflows across <6m, 6m–1y, ≥1y buckets (and 14 buckets in ARF 210.3.x).
+      • Consolidation & currency asymmetries: Level 1 vs Level 2 (intragroup elimination + cross-border trapped-surplus exclusion in strict HQLA1 → HQLA2A → HQLA2B → ALA waterfall
+      order); AUD-only LCR (ARF 210.1B) has special FX derivative carve-outs (gross for funding transformation, excluded for trading/market-making).
+  2. Counterfactual state transitions & coupled caps
+      • 30-day unwind (Att A §§7–8): You do not cap today's HQLA directly—you simulate unwinding maturing (≤30d) HQLA↔HQLA secured funding, secured lending, and collateral swaps,
+      compute the 15% HQLA2B cap and 40% HQLA2 cap on the unwound stock, and subtract the resulting cap adjustments from the unadjusted stock.
+      • Coupled ratio constraints:
+          • NCO = Outflows + APRA_Overlay − min(Inflows, 0.75 × Outflows)
+          • Excess contractual lending obligations (ARF 210.1A Item 15.8) offset against implicit 50% inflow roll-over (max(obligations − implicit_rollover, 0)).
+          • Maturing CLF securities only enter cash inflows (Item 21.2) to the extent they exceed the included CLF numerator cap.
+          • Cross-ratio coupling: NSFR's 10% RSF quota for CLF/ALA assets (Att C §32, ARF 210.6 Items 26–27) is capped by LCR's included/approved CLF (ARF 210.1A Items 6.3 & 6.2.1),
+          with residuals spilling into 65%/85% RSF; re-hypothecation ordering of owned vs borrowed securities must be consistent across LCR and NSFR (ars-210.0.pdf p. 150).
+  3. Non-local entity-graph cliffs & hidden optimisation problems
+      • You cannot classify a deposit row in isolation:
+          • FCS $250k cap: Aggregated across all eligible accounts of a customer—splitting the $250k across accounts with different scorecard points (Table 1 & 2) changes run-off
+          between 5%, 10%, and 25% (a per-customer knapsack allocation).
+          • SME $2M cliff: Consolidated across the SME group; $1 above $2M flips the entire balance from retail (5%/10%/25% LCR; 95%/90% NSFR) to wholesale corporate (20%/40% LCR;
+          50% NSFR).
+          • Wholesale deposit insurance cliff: Unlike retail/operational deposits (which split at the cap), exceeding the limit by $1 flips the entire non-operational wholesale
+          deposit from 20% to 40%.
+          • Collateral pool encumbrance: Unallocated pools allow lowest-liquidity-first (LCR) and highest-RSF-first (NSFR) assignment—a genuine constrained allocation problem.
+          • MLH cross-ADI netting (ARF 210.2 Items 9–12): Netting of placements by other ADIs against MLH deposits with other ADIs is aggregate across all ADIs (not bilateral) and
+          reduces both numerator and denominator by min(placements_in, deposits_out).
+
+  4. Strict conservation & no-double-counting laws
+      • An asset in HQLA/CLF cannot also produce 30-day cash inflows (Att A §31).
+      • Collateral posted as variation margin deducted from NSFR derivative liabilities cannot remain in RSF assets (Att C fn 12).
+      • Every balance-sheet dollar must reconcile to the General Ledger under AASB, while "of which" / memo rows must never be summed into totals.
+  5. Bitemporal & path-dependent state
+      • 30-day downgrade grace period (Att A §25): Requires tracking exact downgrade dates vs reporting date.
+      • 24-month rolling max absolute net 30-day collateral flow (Item 13.6): Daily collateral flow time-series netted by valid Master Netting Agreement.
+      • 12-month monthly net outflows for trade finance & guarantees (Items 16.2–16.3, NSFR Items 52–53).
+      • Fixed-term deposit pool tainting (Att A §42): Allowing one non-hardship early withdrawal despite a no-withdrawal clause taints the entire product category into demand
+      deposits—an event-history invariant.
+  6. Cross-standard dependencies: Directly consumes outputs/definitions from APS 110 (SFT/VM netting), APS 111 (capital & fair value), APS 112 (0%/20%/35% RW, LVR ≤ 80%, ECAI
+  multi-rating rule), APS 113 (IRB PD-to-rating & SME fallback), APS 120 (securitisation relief), APS 220 (NPLs, provisions, GRCL), APS 221 (connected counterparties), and AASB 121
+  (FX).
+  7. Statutory discretions & crisis cadence: APRA can override almost any weight/overlay in writing (§71, Item 29.1), discretions do not auto-carry across standard revisions (§72),
+  compliance is continuous daily (quarterly lowest/highest/mean EOD ratios), and ARF 210.5 demands same-day COB turnaround during stress.
+  ──────
+  ## 2. What a Bank Actually Needs & Optimises For
+
+  A bank does not merely want "a script that computes ARF 210 quarterly." Group Treasury, Risk, Finance, External Audit (APS 310), and APRA are simultaneously optimising five
+  things:
+  1. Minimising the Cost of the Liquidity Buffer (P&L / NIM)
+      • Holding HQLA1 instead of loans costs a major bank $500M–$1.5B+/year in negative carry.
+      • Coarse proxies, missing customer-level joins, suboptimal collateral/FCS allocation, and reporting volatility force banks to hold extra management buffers above 100%
+      LCR/NSFR. Every unnecessary 1% of buffer or conservative data-quality fallback destroys tens of millions in earnings.
+      • Funds & Liquidity Transfer Pricing (FTP/LTP, APS 210 §42): Treasury needs the exact marginal LCR and NSFR shadow price (∂LCR/∂x, ∂NSFR/∂x) of every business line, product,
+      and large proposed trade pre-trade—including regime shifts when a cap (40% HQLA2, 75% inflow, CLF) binds.
+  2. Zero-Error Regulatory & APS 310 Audit Survivability
+      • Regulatory breaches trigger catastrophic APRA penalties (e.g., 10%+ NCO overlays under Item 29.1, costing billions in incremental liquid assets).
+      • Under ARS 210.0 §§15–17, external auditors must test systems annually and an officer digitally signs the return. Auditors need GL-to-return completeness, zero unexplained
+      Excel overlays, exact clause-to-contract lineage, and bitemporal replay (exact movement attribution: price vs FX vs maturity roll-down vs new trades vs rating vs rule change).
+  3. Intraday & Crisis-Speed Agility
+      • Modern bank runs happen in hours. Same-day ARF 210.5, rapid ELA (§70) data packs, daily EOD LCR/MLH, and intraday settlement liquidity (§41) are impossible on fragile
+      overnight batch ETLs with manual spreadsheet adjustments.
+  4. Unified Stress Testing & 3-Year Steering (§§62–66, ARF 210.4)
+      • LCR is just one hard-coded 30-day scenario. Treasury must run dozens of idiosyncratic, market-wide, combined, 3-notch downgrade, 100%-notice-call, and protracted multi-
+      horizon stress scenarios across Level 1, Level 2, currencies, and business lines—using the same contractual cashflow engine, not disconnected models.
+  5. Safe Regulatory & Product Evolution
+      • Standards evolve (2018 → 2022 → July 2025), products change (31-day notice savers, mortgage redraw), and APRA grants time-limited discretions. The bank needs executable,
+      diffable, verifiable rules where documentation cannot drift from production code.
+  ──────
+  ## 3. Why Conventional Stacks Fail
+  • SQL / Spark / Warehouse Pipelines: Weak typing (NULLs, float drift, silent fan-out joins that double-count assets), brutal to express coupled unwinds/optimisations/cliffs,
+  impossible to formally verify conservation laws or compute exact dual prices.
+  • Vendor Black Boxes (QRM, Moody's, AxiomSL, OFSAA): Opaque GUI config, untestable/undiffable logic, slow batch runs, inevitably surrounded by unverified Excel "EUC" overlays
+  where compliance failures breed.
+  • Pure Proof Assistants Alone (Lean / Rocq / Isabelle): Unbeatable for proving theorems, unusable as a 100M-account sub-second incremental streaming engine or large-scale LP
+  solver.
+  • Pure Systems Code (Rust / Java / C++): Fast and strongly typed, but lacks conservation/linear-resource proofs across portfolios, lacks SMT exhaustiveness checking, lacks
+  automatic cell-to-contract provenance, and mixes business policy with plumbing.
+  ──────
+  ## 4. The Ideal Architecture: A Bespoke Verified Language + Proof-Carrying Multi-Target Stack
+  If we are unconstrained by today's off-the-shelf patterns, the clean breakthrough is to separate verified regulatory semantics from execution, connect them via a purpose-built
+  domain language (Prudence), and close the compiler-trust gap with proof-carrying runtime certificates.
+
+                       ┌──────────────────────────────────────────────────┐
+                       │   Bitemporal Canonical Financial Graph (Ledger)  │
+                       │  Contracts · Cashflows · Collateral · Netting    │
+                       │  Entities · Events · Market/RBA · APS 110-221    │
+                       └───────────────────────┬──────────────────────────┘
+                                               │ Refinement-typed ingestion
+                                               │ + Uncertain<T> conservative lattice
+                                               ▼
+                       ┌──────────────────────────────────────────────────┐
+                       │        PRUDENCE (Domain Language & Core IR)      │
+                       │  · Units & Valuation-Basis Types (Exact Q/Dec)   │
+                       │  · Linear Conservation Pools (No Double-Count)   │
+                       │  · Counterfactual Transitions (Unwind / Stress)  │
+                       │  · Declarative LP Blocks + Clause Annotations    │
+                       └──────┬──────────┬──────────┬───────────┬─────────┘
+                              │          │          │           │
+           ┌──────────────────┘          │          │           └──────────────────┐
+           ▼                             ▼          ▼                              ▼
+    ┌──────────────┐            ┌──────────────┐  ┌──────────────┐        ┌────────────────┐
+    │ Formal Proof │            │ Production   │  │ Stress/Audit │        │ Optimisation & │
+    │   Kernel     │            │ Incremental  │  │  Analytics   │        │  FTP/LTP Duals │
+    │  Lean 4 +    │            │ Rust + DBSP  │  │ DuckDB /     │        │ HiGHS/Clarabel │
+    │  Z3 / CVC5   │            │ (Exact Dec)  │  │ DataFusion   │        │ + AD Subgrads  │
+    └──────┬───────┘            └──────┬───────┘  └──────┬───────┘        └───────┬────────┘
+           │                           │                 │                        │
+           │ Proof Certs               └────────┬────────┘                        │ Primal+Dual
+           │                                    ▼                                 │ Certs
+           │                    ┌───────────────────────────────┐                 │
+           └───────────────────►│  TINY VERIFIED CHECKER (TCB)  │◄────────────────┘
+                                │  · GL Conservation Proof      │
+                                │  · No-Double-Count Proof      │
+                                │  · Primal-Dual Optimality     │
+                                │  · Cross-Form Consistency     │
+                                │  · Provenance & Audit Bundle  │
+                                └───────────────┬───────────────┘
+                                                ▼
+                            APRA Connect (ARF 210.1–210.6) · Treasury Live · APS 310 Audit
+
+  ### A. Designing the Purpose-Built Language: Prudence
+
+  Prudence is a total (always-terminating), pure, strongly-typed relational + algebraic + optimisation DSL whose core IR is tiny enough to embed directly in Lean 4 / SMT, yet
+  expressive enough to compile to incremental dataflow and SQL/Arrow. Its six killer primitives map 1-to-1 to APS 210's failure modes:
+  #### 1. Basis-, Currency-, and Convention-Indexed Exact Numeric Types
+
+  • No IEEE-754 floats anywhere in core semantics—only exact rationals ℚ or exact 128-bit scaled decimals. Rounding (RoundToTenthMillion, RoundToWholeDollar) is a type-changing
+  operator permitted only at the ReportingForm boundary.
+  • Monetary types carry phantom dimensions: Money<Ccy, Basis> where Basis ∈ {MarketValue, HedgeAdjMV, RbaHaircutMV, CarryingNetProv, FaceValue}. Adding an LCR MarketValue to an
+  NSFR CarryingNetProv, or adding USD to AUD without an explicit AASB121.fx_convert(rate, as_of), is a compile-time error.
+  • Maturity types separate EarliestRedemptionDate (liabilities / ASF) from LatestMaturityDate (assets / RSF) so asymmetric option rules cannot be inverted.
+  #### 2. Conservation Types & Linear Resource Partitioning (Eliminating Double-Counting Statically)
+
+  • Balance-sheet and collateral holdings live in linearly-tracked Pool<T> collections.
+  • Two built-in primitives enforce mass balance by construction:
+      • partition pool by rules: The SMT checker proves exhaustiveness (no contract dropped) and disjointness—or if rules intentionally overlap, forces an explicit resolution
+      policy like resolve_overlap: max_outflow_rate (directly encoding ars-210.0.pdf p. 45!).
+      • split(amount, cap) -> (within, excess): Statically guarantees within + excess == amount, within >= 0, excess >= 0.
+  • Linear capability consumption: Assigning a security lot to HQLA_Stock or CLF_Collateral consumes its 30dInflowRight, making it a type error to include that same lot in
+  CashInflows (Att A §31). Similarly, deducting posted variation margin from NSFR derivative liabilities consumes its RSF_Asset token (Att C fn 12).
+  • of_which / memo items are typed as read-only Observer<T>, which cannot be passed to sum_into_total(...).
+  #### 3. First-Class Conservative Uncertainty Lattice (Uncertain<T>)
+
+  This solves the #1 real-world bank problem—messy upstream data—without crashing EOD close or silently defaulting to optimistic false:
+  • Every regulatory attribute (e.g., is_operational_excess_known, has_established_relationship, collateral_split_known, ultimate_owner_known) can carry Known(v) | Unknown(reason).
+  • Because every regulatory rule has a well-defined prudential conservative direction (e.g., unknown operational excess → 100% non-operational; unknown secured/unsecured loan
+  split → higher RSF; unknown bond holder → FI 0% ASF), the language propagates intervals [optimistic, prudential_conservative]:
+      • Reported APRA number = prudential_conservative (100% compliant).
+      • Data-Quality Capital Drag = prudential_conservative − optimistic, automatically priced via Treasury's FTP shadow price! Management gets a daily leaderboard: "Fixing missing
+      SME group-link IDs on 412 accounts frees $680M of HQLA = $7.5M/year in NII."
+  #### 4. Declarative Counterfactual Transitions (unwind and stress)
+
+  Instead of hand-coding error-prone spreadsheet arithmetic like ARF 210.1A Item 1.5.1 (11.1.2 + 11.7.2 + 19.1.1.1 + ... - 11.1.1 - ...), express the actual financial physics once:
+
+  • Portfolio_Unwound = unwind_sft_and_swaps(Portfolio, horizon: 30d) (which executes cash/collateral leg settlement while preserving conservation).
+  • In the proof kernel (Lean 4 / Z3), formally prove that classify_HQLA(Portfolio_Unwound) equals APRA's ARF 210.1A derived form equations for all valid portfolios!
+  • The exact same state-transition language expresses Stress Testing (apply_scenario(Portfolio, SevereCombinedStress)): shock prices, fire 3-notch downgrade triggers, exercise in-
+  the-money options, call 100% of 31-day notice deposits, freeze wholesale rollovers, and roll forward t = 0 … 365 days.
+  #### 5. Certified Embedded Optimisation (optimize) + Automatic Shadow Pricing
+
+  For the genuine optimisation problems embedded inside APS 210 (customer-level FCS $250k allocation, unallocated collateral pool assignment, cross-ratio LCR/NSFR re-hypothecation
+  consistency, and Treasury buffer/funding optimisation):
+  • Prudence provides declarative optimize { minimize ... subject to ... } blocks compiled to an external solver (e.g., HiGHS / Clarabel / exact rational simplex).
+  • The solver is NOT trusted: it returns both a primal allocation x^* and dual multipliers y^*, which are verified in O(n) by a tiny formally verified Primal-Dual Certificate
+  Checker.
+  • Huge economic win: The verified dual variables y^* (plus exact piecewise-linear subgradients at cap boundaries) are directly exported as the bank's APS 210 §42 Funds &
+  Liquidity Transfer Prices (FTP/LTP)—telling every desk the true marginal cost of liquidity when a trade pushes the bank closer to the 40% HQLA2 cap, 75% inflow cap, or AUD LCR
+  floor.
+
+  #### 6. Mandatory Legal Provenance, Bitemporal Events, and Signed Overlays
+  • Every rule block carries @citation, @effective, @jurisdiction metadata.
+  • Evaluating the IR over a Provenance Semiring (instead of just scalar dollars) produces exact bi-directional lineage: click any cell in ARF 210.1A/210.6 → see the exact
+  statutory clause, exact formula, contributing contracts, and per-contract decision witness; click any contract → see its exact impact across all 7 ARF forms.
+  • No Excel overlays: APRA discretions (§71, Item 29.1, ARF 210.6 Items 18/46/54) and temporary data patches are typed, signed AST overlays with mandatory apra_instrument_ref,
+  cryptographic executive sign-off, and hard expiry_date (automatically enforcing §72 when standards update).
+
+  #### Sketch: What Prudence Looks Like in Practice
+
+    @standard("APS 210", version: "2025-07-01", clause: "Att A §§34–46; APG 210 §§106–114")
+    module RetailAndSmeOutflows(jurisdiction: AU_APRA) {
+
+      // 1. Customer-group aggregation & $2M SME cliff (non-local graph rule)
+      view CustomerTotals =
+        group Deposits by customer_group_id {
+          agg_bal = sum(balance : Money<AUD, CarryingNetProv>),
+          is_tainted_td_pool = exists(event in EventLog | event.kind == NonHardshipEarlyWithdrawal
+                                      && event.product_class == product_class) // Att A §42
+        }
+
+      // 2. Conservation-checked partition: Retail/Qualifying SME vs Wholesale Cliff
+      partition (RetailEligible, WholesaleOverflow) =
+        partition Deposits join CustomerTotals {
+          case natural_person || smsf || qualifying_pie(agg_bal)         => RetailEligible
+          case sme && managed_as_retail && agg_bal < 2_000_000.AUD       => RetailEligible
+          otherwise                                                      => WholesaleOverflow
+        }
+
+      // 3. Per-customer optimal FCS $250k allocation (certified primal-dual LP/greedy)
+      alloc fcs_alloc : ConservationSplit(RetailEligible, cap_per_customer: 250_000.AUD) =
+        optimize per customer_id {
+          minimize sum(d in customer_deposits |
+                       weighted_outflow(d, fcs_alloc[d])
+                     + weighted_outflow_uninsured(d, d.balance - fcs_alloc[d]))
+          subject to
+            sum(fcs_alloc[d]) <= min(250_000.AUD, sum(d.balance)),
+            forall d: 0 <= fcs_alloc[d] <= d.balance
+        }
+
+      // 4. Scorecard with Uncertain<Bool> conservative fallback
+      fn less_stable_rate(d: DepositSlice, is_above_fcs: Bool) -> Rate {
+        let score = (if is_above_fcs then 2 else 0)
+                  + (if conservative(d.is_online, worst: true) then 2 else 0)
+                  + (if conservative(!d.has_est_relationship, worst: true) then 1 else 0)
+                  + (if conservative(d.is_rate_driven, worst: true) then 1 else 0);
+        if score >= 3 then 25% else 10%
+      }
+
+      // 5. Compile-time & runtime proof obligations
+      invariant conservation:
+        sum(RetailEligible.balance) + sum(WholesaleOverflow.balance) == sum(Deposits.balance)
+
+      theorem monotonicity_sme_cliff:
+        forall c: SmeCustomer, crossing_2m_threshold(c) ==> total_outflow_after >= total_outflow_before
+    }
+  ──────
+  ### B. The Concrete Implementation Stack (Mix-and-Mash of Best-in-Class Tech)
+   Layer                               │ Technology Choice                                                   │ Concrete Role & Why It Wins
+  ─────────────────────────────────────┼─────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────
+   Canonical Data & Event Ledger       │ ACTUS / FINOS CDM-inspired normalized contract model + Apache       │ One canonical representation of contracts, contractual cashflows,
+                                       │ Iceberg (bitemporal history) + Kafka/Redpanda (intraday events)     │ collateral lots, netting sets, and legal entities. Immutable
+                                       │                                                                     │ (valid_time, tx_time) history natively supports 24m collateral
+                                       │                                                                     │ lookback, 30d downgrade grace tracking, TD tainting, and exact
+                                       │                                                                     │ historical restatement diffs.
+   Specification & Compiler Frontend   │ Prudence DSL + Core IR (implemented in Rust or Lean 4)              │ Small, total, readable regulatory IR. Compiles to 4 targets + auto-
+                                       │                                                                     │ generates living policy docs & clause traceability matrices.
+   Formal Verification Engine          │ Lean 4 + Z3 / CVC5 SMT                                              │ Embeds Prudence Core IR semantics to machine-check: exhaustiveness,
+                                       │                                                                     │ conservation, no-double-counting, boundary inequalities (< vs ≤),
+                                       │                                                                     │ monotonicity, cross-ratio consistency, and algebraic equivalence
+                                       │                                                                     │ between mechanistic unwind_30d and ARF 210.1A derived form
+                                       │                                                                     │ equations.
+   Production Real-Time / Daily Engine │ Rust + DBSP (Feldera) / Differential Dataflow with 128-bit fixed-   │ Automatically differentiates Prudence relational queries into
+                                       │ point decimal arithmetic                                            │ incremental circuits. Recomputes 100M+ accounts, daily EOD LCR/MLH,
+                                       │                                                                     │ intraday settlement liquidity, and same-day crisis ARF 210.5 in
+                                       │                                                                     │ seconds—mathematically guaranteed bit-for-bit identical to full
+                                       │                                                                     │ batch.
+   Stress Testing & Audit Drill-Down   │ DuckDB / Apache DataFusion + Apache Arrow (compiled from the same   │ Vectorised parallel execution of 100+ stress scenarios, 3-year
+                                       │ Prudence IR)                                                        │ funding plans (ARF 210.4), and interactive provenance/lineage
+                                       │                                                                     │ queries over Iceberg snapshots with zero-copy Arrow sharing.
+   Optimisation & FTP Engine           │ HiGHS / Clarabel (or exact rational simplex) + Reverse-mode         │ Solves collateral pool assignment, FCS splitting, and buffer/funding
+                                       │ piecewise-linear subgradients                                       │ mix optimisation; exports exact shadow prices to Treasury FTP/LTP
+                                       │                                                                     │ and pre-trade pricing APIs.
+   Trusted Verification Gate (TCB)     │ Tiny standalone Rust/Lean-extracted Proof-Carrying Checker          │ Independent of DBSP, DuckDB, and LP solvers. Before any report is
+                                       │                                                                     │ released or digitally signed, checks: (1) GL balance-sheet tie-out,
+                                       │                                                                     │ (2) zero double-counting, (3) primal-dual LP certificates, (4) cap
+                                       │                                                                     │ identities, (5) cross-form ties (ARF 210.1A ↔ 210.1B ↔ 210.3.x ↔
+                                       │                                                                     │ 210.5 ↔ 210.6), and emits a content-addressed APS 310 Audit Bundle
+                                       │                                                                     │ (hashes of data snapshots, spec version, proof certs, signed
+                                       │                                                                     │ overlays, and move-attribution bridge).
+  ──────
+  ### C. Why This Design Is Uniquely Bulletproof (Key Architectural Decisions)
+
+  1. Keep the Trusted Computing Base (TCB) Tiny: You never have to "trust" a giant distributed query engine, an optimising Rust compiler, or a numerical LP solver. You prove the
+  specification in Lean 4/SMT, run continuous differential testing across Lean ↔ DBSP ↔ DuckDB on shrunk counterexamples, and verify every single production run through an
+  independent, tiny Proof-Carrying Report Checker that validates conservation, caps, cross-form invariants, and primal-dual optimality on the concrete output before sign-off.
+  2. Exact Move Attribution ("Explain") Built-In: Because the ledger is bitemporal and DBSP computes exact deltas, every morning Treasury gets an exact, zero-residual waterfall
+  explaining why LCR/NSFR moved overnight (market price → FX → maturity roll-down crossing 30d/6m/1y boundaries → deposit flows → new trades → collateral moves → rating downgrades
+  → rule/overlay changes).
+  3. Clean Separation of Statutory Rules vs Behavioural Models: Statutory rules (APS 210 Attachments A–C) live in pure, deterministic, formally verified Prudence modules.
+  Behavioural/statistical models (operational deposit excess estimation, mortgage prepayment curves for ARF 210.3.1 Item 10.5, stress run-off assumptions) are injected through
+  explicit, versioned, Model-Risk-governed interfaces (APS 210 Att A §32) with full sensitivity analysis.
+  4. Federated Multi-Jurisdiction Support: Offshore subsidiaries under Level 2 (e.g., NZ/RBNZ, UK/PRA, US/Fed) require host-supervisor retail/SME run-offs and ALA rules (Att A §26)
+  alongside cross-border transferability caps (§29). Parameterising Prudence modules by JurisdictionPolicy lets one group engine run Level 1, Level 2, domestic books, and local
+  host regulatory views cleanly without forked codebases.
+  5. Where AI Fits (and Where It Must Never Go): Never put an LLM in the execution path. Use AI strictly offline as a regulatory-engineering copilot: ingesting new APRA
+  determinations (like the July 2025 update) to draft diffs to Prudence specs, flagging semantic ambiguities between APS 210 prose and ARS 210.0 instructions, generating
+  adversarial fuzz scenarios, and summarising verified move-attribution bridges for ALCO/Board packs—where every code change still has to pass the Lean/SMT proof checker and human
+  sign-off.
+  ──────
+  ### Bottom Line
+
+  If you build APS 210 as a data pipeline, you get fragile reconciliations, opaque errors, and wasted HQLA carry. If you build it as a conservation-typed, formally verified domain
+  language (Prudence) over a bitemporal canonical financial graph—compiling simultaneously to Lean 4/SMT (for proof), Rust + DBSP (for continuous daily/intraday/crisis speed),
+  DuckDB/Arrow (for stress testing & audit), and certified LP optimisation (for collateral efficiency & FTP shadow pricing), gated by a tiny proof-carrying checker—you turn
+  regulatory compliance from an expensive audit liability into a real-time, mathematically verified balance-sheet steering engine.*
+
+────────────────────────────────────────────────────────────
