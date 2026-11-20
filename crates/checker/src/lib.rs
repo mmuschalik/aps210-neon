@@ -23,6 +23,7 @@
 //! hashes (data snapshot, spec sources, certificates, assumptions, results)
 //! whose own hash is the bundle id.
 
+pub mod json;
 pub mod sha256;
 
 use std::collections::{BTreeMap, BTreeSet};

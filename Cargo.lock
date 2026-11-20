@@ -24,6 +24,7 @@ dependencies = [
  "obligations",
  "prudence-core",
  "secured",
+ "serde_json",
 ]
 
 [[package]]

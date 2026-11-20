@@ -260,3 +260,15 @@ fn the_gate_catches_each_kind_of_error() {
     q.certificates[0].solution.value += Q::from_integer(1.into());
     fails(&q, "lp certificates");
 }
+
+/// What the engine writes out is exactly what the standalone checker reads:
+/// a whole-bank package (with FCS certificates) survives JSON unchanged.
+#[test]
+fn the_package_round_trips_through_json() {
+    let b = with_ledger(bank(true));
+    let (p, rep) = gate(&b);
+    let text = checker::json::to_json(&p).to_string();
+    let back = checker::json::from_json(&serde_json::from_str(&text).unwrap()).unwrap();
+    let again = checker::check(&back);
+    assert_eq!(rep.bundle.unwrap()["bundle_id"], again.bundle.unwrap()["bundle_id"]);
+}
