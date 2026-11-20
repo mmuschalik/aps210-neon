@@ -16,10 +16,14 @@ pub const SPEC_HEADER: [&str; 3] = [
 ];
 
 /// (form code, source) of every form spec.
-pub const SPECS: [(&str, &str); 4] = [
+pub const SPECS: [(&str, &str); 8] = [
     ("ARF 210.1A", include_str!("../../../specs/arf210/arf_210_1a.prd")),
     ("ARF 210.1B", include_str!("../../../specs/arf210/arf_210_1b.prd")),
     ("ARF 210.2", include_str!("../../../specs/arf210/arf_210_2.prd")),
+    ("ARF 210.3.1", include_str!("../../../specs/arf210/arf_210_3_1.prd")),
+    ("ARF 210.3.2", include_str!("../../../specs/arf210/arf_210_3_2.prd")),
+    ("ARF 210.4", include_str!("../../../specs/arf210/arf_210_4.prd")),
+    ("ARF 210.5", include_str!("../../../specs/arf210/arf_210_5.prd")),
     ("ARF 210.6", include_str!("../../../specs/arf210/arf_210_6.prd")),
 ];
 
@@ -56,6 +60,18 @@ pub fn mlh() -> &'static Form {
 }
 pub fn nsfr() -> &'static Form {
     form("210.6").unwrap()
+}
+pub fn maturity_assets() -> &'static Form {
+    form("210.3.1").unwrap()
+}
+pub fn maturity_liabilities() -> &'static Form {
+    form("210.3.2").unwrap()
+}
+pub fn funding_plan() -> &'static Form {
+    form("210.4").unwrap()
+}
+pub fn daily() -> &'static Form {
+    form("210.5").unwrap()
 }
 
 pub use prudence_core::Missing;

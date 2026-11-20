@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use arf210::crossform::nsfr_vs_lcr;
-use arf210::{lcr_all, lcr_aud, mlh, nsfr};
+use arf210::{daily, funding_plan, lcr_all, lcr_aud, maturity_assets, maturity_liabilities, mlh, nsfr};
 use prudence_core::num::{int, parse_decimal};
 use prudence_core::{Evaluation, Form, InputError, Missing, Q, Value, evaluate};
 
@@ -34,6 +34,10 @@ fn item_ids_match_the_pdf() {
         (lcr_aud(), "arf_210_1b_items.txt"),
         (mlh(), "arf_210_2_items.txt"),
         (nsfr(), "arf_210_6_items.txt"),
+        (maturity_assets(), "arf_210_3_1_items.txt"),
+        (maturity_liabilities(), "arf_210_3_2_items.txt"),
+        (funding_plan(), "arf_210_4_items.txt"),
+        (daily(), "arf_210_5_items.txt"),
     ] {
         let mut want: Vec<String> =
             std::fs::read_to_string(dir.join(file)).unwrap().split_whitespace().map(String::from).collect();

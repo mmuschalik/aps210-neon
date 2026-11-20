@@ -1,0 +1,1257 @@
+// Prudence form spec. Source of truth: edit this file, not code.
+// Source: ARS 210.0 (F2023L00417) forms and instructions; APS 210 (July 2025).
+// Format with: cargo run -p arf210 -- fmt <form>
+
+@reporting("ARS 210.0", version: "2023-03-31")
+form Arf210_4("ARF 210.4", "3-year Funding Plan") {
+  columns actual, m3, m6, m12, m24, m36
+  input actual
+
+  item "1" "Notes and coin, RBA and other central bank balances" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "1.1" "Notes and coin" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "1.2" "RBA balances" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "1.3" "Other central bank balances" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2" "Unencumbered debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1" "Domestic" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.1" "Australian Government securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.2" "Australian State Government or Territory Central Borrowing Authorities securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.3" "Other HQLA1" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.4" "HQLA 2A" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.5" "HQLA 2B" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.6" "Other RBA repo-eligible securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.7" "Other short-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.8" "Other long-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.1.9" "of which: own issued securities held" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2" "Offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2.1" "HQLA1" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2.2" "HQLA 2A" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2.3" "HQLA 2B" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2.4" "Other central bank repo-eligible securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2.5" "Other short-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2.6" "Other long-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "2.2.7" "of which: own issued securities held" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "3" "Unencumbered equity (or other) securities and commodities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "3.1" "of which: offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "3.2" "of which: own securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "4" "Encumbered equity (or other) securities and commodities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "4.1" "of which: offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "4.2" "of which: own securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "5" "Securities purchased under agreement to resell" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "5.1" "of which: offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6" "Other earning assets by counterparty" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.1" "Domestic" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.1.1" "Retail customer" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.1.2" "SME" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.1.3" "Non-financial corporate or PSEs" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.1.4" "ADI/bank" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.1.5" "Other financial institutions or other legal entities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.1.6" "of which: encumbered" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.2" "Offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.2.1" "Retail customer" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.2.2" "SME" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.2.3" "Non-financial corporate or PSEs" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.2.4" "ADI/bank" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.2.5" "Other financial institutions or other legal entities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "6.2.6" "of which: encumbered" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "7" "Any other material funded assets not included above" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "7.1" "of which: offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8" "Total assets" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.1" "AUD" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.2" "NZD" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.3" "USD" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.4" "GBP" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.5" "EUR" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.6" "JPY" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.7" "RMB" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "8.8" "All other currencies" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9" "Unsecured deposit funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.1" "Domestic" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.1.1" "Retail customer" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.1.2" "SME" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.1.3" "Non-financial corporate and PSEs" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.1.4" "ADI/bank" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.1.5" "Other financial institutions and other legal entities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.2" "Offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.2.1" "Retail customer" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.2.2" "SME" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.2.3" "Non-financial corporate and PSEs" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.2.4" "ADI/bank" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "9.2.5" "Other financial institutions and other legal entities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10" "Unsecured debt securities issued" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.1" "Domestic" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.1.1" "Certificates of Deposit, bank bills, other short-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.1.2" "Long-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.2" "Offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.2.1" "Euro commercial paper" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.2.2" "US commercial paper" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.2.3" "Other short-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "10.2.4" "Long-term debt securities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11" "Secured funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.1" "Domestic" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.1.1" "Securities sold under agreement to repurchase" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.1.1.1" "of which: RBA as counterparty" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.1.2" "Covered bonds on issue" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.1.3" "Short-term securitisation funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.1.4" "Long-term securitisation funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.1.5" "Other secured funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.2" "Offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.2.1" "Securities sold under agreement to repurchase" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.2.1.1" "of which: central bank as counterparty" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.2.2" "Covered bonds on issue" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.2.3" "Short-term securitisation funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.2.4" "Long-term securitisation funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "11.2.5" "Other secured funding" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "12" "Interest bearing liabilities not included above" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "12.1" "Domestic" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "12.2" "Offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "13" "Any other material funding liabilities not included above" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "13.1" "of which: offshore" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "14" "Capital" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "14.1" "Common Equity Tier 1" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "14.2" "Additional Tier 1" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "14.3" "Tier 2" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15" "Total liabilities and capital" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.1" "AUD" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.2" "NZD" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.3" "USD" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.4" "GBP" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.5" "EUR" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.6" "JPY" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.7" "RMB" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "15.8" "All other currencies" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "16" "Committed contingent funding agreements" {
+    actual = [16.1:actual] + [16.2:actual] + [16.3:actual] + [16.4:actual]
+    m3     = [16.1:m3] + [16.2:m3] + [16.3:m3] + [16.4:m3]
+    m6     = [16.1:m6] + [16.2:m6] + [16.3:m6] + [16.4:m6]
+    m12    = [16.1:m12] + [16.2:m12] + [16.3:m12] + [16.4:m12]
+    m24    = [16.1:m24] + [16.2:m24] + [16.3:m24] + [16.4:m24]
+    m36    = [16.1:m36] + [16.2:m36] + [16.3:m36] + [16.4:m36]
+  } @cite("ARS p.121: derived total")
+
+  item "16.1" "Trade finance related obligations" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "16.2" "Guarantees and letters of credit other than trade finance related obligations" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "16.3" "Committed mortgage redraw capacity and lines of credit" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "16.4" "Other credit/liquidity facilities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "16.5" "of which: intra-group" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "17" "Uncommitted contingent funding agreements" {
+    actual = [17.1:actual] + [17.2:actual] + [17.3:actual] + [17.4:actual]
+    m3     = [17.1:m3] + [17.2:m3] + [17.3:m3] + [17.4:m3]
+    m6     = [17.1:m6] + [17.2:m6] + [17.3:m6] + [17.4:m6]
+    m12    = [17.1:m12] + [17.2:m12] + [17.3:m12] + [17.4:m12]
+    m24    = [17.1:m24] + [17.2:m24] + [17.3:m24] + [17.4:m24]
+    m36    = [17.1:m36] + [17.2:m36] + [17.3:m36] + [17.4:m36]
+  } @cite("ARS p.121: derived total")
+
+  item "17.1" "Trade finance related obligations" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "17.2" "Guarantees and letters of credit other than trade finance related obligations" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "17.3" "Uncommitted mortgage redraw capacity and lines of credit" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "17.4" "Other credit/liquidity facilities" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "17.5" "of which: intra-group" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18" "Assets" {}
+
+  item "18.1" "Intra-group loans or other assets (ADIs/banks)" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18.2" "Intra-group loans or other assets (other legal entities)" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18.3" "Corporate and business loans" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18.3.1" "of which: SME" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18.4" "Commercial real estate mortgages" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18.5" "Residential mortgages" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18.6" "RMBS" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "18.7" "Total self-securitisation" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "19" "Liabilities" {}
+
+  item "19.1" "Intra-group liabilities (ADIs/banks)" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "19.2" "Intra-group liabilities (other legal entities)" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "20" "Covered Bonds" {}
+
+  item "20.1" "Cover pool assets used as collateral for covered bond issuance" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "20.2" "Overcollateralisation" {
+    actual = if [11.1.2:actual] + [11.2.2:actual] == 0 then 0 else [20.1:actual] / ([11.1.2:actual] + [11.2.2:actual])
+    m3     = if [11.1.2:m3] + [11.2.2:m3] == 0 then 0 else [20.1:m3] / ([11.1.2:m3] + [11.2.2:m3])
+    m6     = if [11.1.2:m6] + [11.2.2:m6] == 0 then 0 else [20.1:m6] / ([11.1.2:m6] + [11.2.2:m6])
+    m12    = if [11.1.2:m12] + [11.2.2:m12] == 0 then 0 else [20.1:m12] / ([11.1.2:m12] + [11.2.2:m12])
+    m24    = if [11.1.2:m24] + [11.2.2:m24] == 0 then 0 else [20.1:m24] / ([11.1.2:m24] + [11.2.2:m24])
+    m36    = if [11.1.2:m36] + [11.2.2:m36] == 0 then 0 else [20.1:m36] / ([11.1.2:m36] + [11.2.2:m36])
+  } @cite("ARS p.121: item 20.1 / (items 11.1.2 + 11.2.2)")
+
+  item "20.3" "Assets in Australia" {
+    actual = input
+    m3     = input
+    m6     = input
+    m12    = input
+    m24    = input
+    m36    = input
+  }
+
+  item "20.4" "Cover pool as a proportion of assets in Australia" {
+    actual = if [20.3:actual] == 0 then 0 else [20.1:actual] / [20.3:actual]
+    m3     = if [20.3:m3] == 0 then 0 else [20.1:m3] / [20.3:m3]
+    m6     = if [20.3:m6] == 0 then 0 else [20.1:m6] / [20.3:m6]
+    m12    = if [20.3:m12] == 0 then 0 else [20.1:m12] / [20.3:m12]
+    m24    = if [20.3:m24] == 0 then 0 else [20.1:m24] / [20.3:m24]
+    m36    = if [20.3:m36] == 0 then 0 else [20.1:m36] / [20.3:m36]
+  } @cite("ARS p.121: item 20.1 / item 20.3")
+}
