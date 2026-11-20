@@ -129,6 +129,8 @@ pub struct Case {
     pub outputs: Vec<(String, Expr)>,
 }
 
+// Declarations are few per module; size is irrelevant.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum DeclKind {
     Param { ty: Type, default: Option<Expr> },
