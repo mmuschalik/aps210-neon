@@ -46,7 +46,7 @@ fn form_adjustments_equal_the_mechanical_unwind() {
     for seed in 0..60 {
         for mode in [Mode::Conservative, Mode::Optimistic] {
             let repos = portfolio(seed, 1 + (seed as usize % 9));
-            let run = run(&repos, rd(), mode).unwrap();
+            let run = run(&[], &repos, rd(), mode).unwrap();
             let inputs = arf_inputs(&run);
             let ev = evaluate(arf210::lcr_all(), inputs.iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).unwrap();
             for (item, class) in [("1.5.1", HqlaClass::Hqla1), ("2.5.1", HqlaClass::Hqla2a), ("3.4.1", HqlaClass::RmbsHqla2b), ("3.5.1", HqlaClass::NonRmbsHqla2b)] {
@@ -71,7 +71,7 @@ fn a_maturing_repo_reports_and_unwinds() {
         rehypothecated: false,
         maturity: rd() + Days::new(10),
     };
-    let run = run(std::slice::from_ref(&r), rd(), Mode::Conservative).unwrap();
+    let run = run(&[], std::slice::from_ref(&r), rd(), Mode::Conservative).unwrap();
     let m = |x: u64| Q::from_u64(x * 1_000_000).unwrap();
     assert_eq!(run.items["11.2"], m(50));
     assert_eq!(run.items["11.2.1"], m(50));
@@ -80,13 +80,13 @@ fn a_maturing_repo_reports_and_unwinds() {
     assert_eq!(run.unwind[&HqlaClass::Hqla2a], m(55));
     // Unknown operational status: conservatively the collateral does not qualify.
     let unknown = Repo { operational: Uncertain::unknown("no custody link"), ..r.clone() };
-    let run = secured::run(&[unknown], rd(), Mode::Conservative).unwrap();
+    let run = secured::run(&[], &[unknown], rd(), Mode::Conservative).unwrap();
     assert_eq!(run.items["11.2.1"], Q::default());
     assert_eq!(run.unwind[&HqlaClass::Hqla1], Q::default());
     assert!(run.assumptions.contains_key(&("r".to_string(), "operational".to_string())));
     // Maturing after 30 days: not reported, not unwound.
     let later = Repo { maturity: rd() + Days::new(31), ..r };
-    let run = secured::run(&[later], rd(), Mode::Conservative).unwrap();
+    let run = secured::run(&[], &[later], rd(), Mode::Conservative).unwrap();
     assert!(run.items.values().all(|v| *v == Q::default()));
 }
 
@@ -120,4 +120,73 @@ fn unwind_theorem_checks_in_lean() {
     let out = Command::new("lake").args(["env", "lean", f.to_str().unwrap()]).current_dir(lean_dir()).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(text.contains("depends on axioms: [propext") && !text.contains("sorryAx"), "{text}");
+}
+
+fn holding(id: &str, kind: AssetKind, issuer: Issuer, rw: i64, grade: i64, value_m: u64) -> Holding {
+    Holding {
+        id: id.into(),
+        kind,
+        issuer,
+        market_value: Q::from_u64(value_m * 1_000_000).unwrap(),
+        risk_weight: rw,
+        rating_grade: grade,
+        domestic_currency: true,
+        index_constituent: true,
+        own_or_associated: false,
+        encumbered: false,
+        operational: Uncertain::Known(true),
+    }
+}
+
+/// The complete LCR numerator from raw holdings and transactions: Section A
+/// stock, the unwind of a maturing repo, and the 15% / 40% caps.
+#[test]
+fn lcr_numerator_from_raw_holdings_and_repos() {
+    let holdings = vec![
+        holding("cash", AssetKind::NotesAndCoin, Issuer::CentralBank, 0, 1, 10),
+        holding("acgb", AssetKind::DebtSecurity, Issuer::AustralianGovernment, 0, 1, 100),
+        holding("semi-pledged", AssetKind::DebtSecurity, Issuer::StateCentralBorrowingAuthority, 0, 1, 40),
+        holding("corp-aa", AssetKind::DebtSecurity, Issuer::NonFinancialCorporateIssuer, 50, 1, 50),
+        holding("other-bank-cb", AssetKind::CoveredBond, Issuer::FinancialInstitutionIssuer, 20, 1, 30),
+        holding("own-cb", AssetKind::CoveredBond, Issuer::FinancialInstitutionIssuer, 20, 1, 25),
+        holding("rmbs", AssetKind::Rmbs, Issuer::FinancialInstitutionIssuer, 20, 1, 80),
+        holding("corp-bbb", AssetKind::DebtSecurity, Issuer::NonFinancialCorporateIssuer, 100, 3, 40),
+    ];
+    let mut holdings = holdings;
+    holdings[2].encumbered = true; // pledged in the repo below
+    holdings[5].own_or_associated = true; // own covered bond: never HQLA
+    // Repo: borrowed 35m cash against the pledged semi (MV 40m), maturing in 5 days.
+    let repo = Repo {
+        id: "repo".into(),
+        leg: Leg::Funding,
+        cash: Q::from_u64(35_000_000).unwrap(),
+        collateral_class: HqlaClass::Hqla1,
+        collateral_value: Q::from_u64(40_000_000).unwrap(),
+        counterparty: Counterparty::Other,
+        operational: Uncertain::Known(true),
+        rehypothecated: false,
+        maturity: rd() + Days::new(5),
+    };
+    let r = run(&holdings, &[repo], rd(), Mode::Conservative).unwrap();
+    let m = |x: u64| Q::from_u64(x).unwrap();
+    let ev = evaluate(arf210::lcr_all(), arf_inputs(&r).iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).unwrap();
+    assert_eq!(ev.q("1"), &m(110)); // notes 10 + ACGB 100 (pledged semi excluded)
+    assert_eq!(ev.q("2"), &m(80)); // corp AA 50 + other bank's covered bond 30 (own covered bond excluded)
+    assert_eq!(ev.q("3"), &m(120)); // RMBS 80 + BBB corporate 40
+    // Unwinding the repo: return 35m cash, get the 40m semi back.
+    assert_eq!(ev.q("1.5"), &m(115));
+    assert_eq!(ev.q("1.5:weighted"), &m(115));
+    // HQLA2A 80 x 0.85 = 68; HQLA2B 80 x 0.75 + 40 x 0.5 = 80.
+    assert_eq!(ev.q("2.5:weighted"), &m(68));
+    assert_eq!(ev.q("3.6:weighted"), &m(80));
+    // 15% cap: max(80 - 15/85 x (115 + 68), 80 - 15/60 x 115, 0) = 80 - 28.75 = 51.25
+    assert_eq!(ev.q("4.1:weighted"), &(m(80) - Q::new(2875.into(), 100.into())));
+    // 40% cap: max(68 + 80 - 51.25 - 2/3 x 115, 0) = 96.75 - 76.666...
+    let cap40 = m(68) + m(80) - Q::new(5125.into(), 100.into()) - Q::new(230.into(), 3.into());
+    assert_eq!(ev.q("4.2:weighted"), &cap40);
+    let total = m(110) + m(68) + m(80) - Q::new(5125.into(), 100.into()) - cap40;
+    assert_eq!(ev.q("4:weighted"), &total);
+    // The only finding: this slice does not yet split outflows by currency (18.x).
+    let ids: Vec<&str> = ev.findings.iter().map(|f| f.check_id.as_str()).collect();
+    assert_eq!(ids, ["18 ccy amount"]); // weighted balances: HQLA1 repos run off at 0%
 }

@@ -62,6 +62,47 @@ pub enum Counterparty {
     Other,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssetKind {
+    NotesAndCoin,
+    RbaBalance,
+    ForeignCentralBankBalance,
+    DebtSecurity,
+    CoveredBond,
+    Rmbs,
+    Equity,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Issuer {
+    AustralianGovernment,
+    StateCentralBorrowingAuthority,
+    ForeignSovereign,
+    GuaranteedByAustralianGovernment,
+    GuaranteedByForeignSovereign,
+    CentralBank,
+    PublicSectorEntity,
+    Supranational,
+    NonFinancialCorporateIssuer,
+    FinancialInstitutionIssuer,
+}
+
+/// A holding in the stock of liquid assets.
+#[derive(Clone, Debug)]
+pub struct Holding {
+    pub id: String,
+    pub kind: AssetKind,
+    pub issuer: Issuer,
+    pub market_value: Q,
+    pub risk_weight: i64,
+    pub rating_grade: i64,
+    pub domestic_currency: bool,
+    pub index_constituent: bool,
+    pub own_or_associated: bool,
+    pub encumbered: bool,
+    pub operational: Uncertain<bool>,
+}
+
 /// ACTUS REP contract.
 #[derive(Clone, Debug)]
 pub struct Repo {
@@ -80,8 +121,38 @@ fn date(d: NaiveDate) -> Val {
     Val::Date(days_from_civil(i64::from(d.year()), d.month(), d.day()))
 }
 
-pub fn load(repos: &[Repo]) -> World {
+fn uncertain(u: &Uncertain<bool>, subject: &str, attribute: &str) -> Val {
+    match u {
+        Uncertain::Known(b) => Val::Bool(*b),
+        Uncertain::Unknown(reason) => {
+            Val::Unknown { reason: reason.clone(), subject: subject.into(), attribute: attribute.into() }
+        }
+    }
+}
+
+pub fn load(holdings: &[Holding], repos: &[Repo]) -> World {
     let mut w = World::default();
+    for h in holdings {
+        let ctor = |n: String| Val::Ctor(n, vec![]);
+        w.insert(
+            "Holding",
+            Record {
+                id: h.id.clone(),
+                fields: vec![
+                    ("kind".into(), ctor(format!("{:?}", h.kind))),
+                    ("issuer".into(), ctor(format!("{:?}", h.issuer))),
+                    ("market_value".into(), Val::Num(h.market_value.clone())),
+                    ("risk_weight".into(), Val::num(h.risk_weight)),
+                    ("rating_grade".into(), Val::num(h.rating_grade)),
+                    ("domestic_currency".into(), Val::Bool(h.domestic_currency)),
+                    ("index_constituent".into(), Val::Bool(h.index_constituent)),
+                    ("own_or_associated".into(), Val::Bool(h.own_or_associated)),
+                    ("encumbered".into(), Val::Bool(h.encumbered)),
+                    ("operational".into(), uncertain(&h.operational, &h.id, "operational")),
+                ],
+            },
+        );
+    }
     for r in repos {
         let ctor = |n: &str| Val::Ctor(n.into(), vec![]);
         w.insert(
@@ -101,17 +172,7 @@ pub fn load(repos: &[Repo]) -> World {
                             Counterparty::Other => "OtherCounterparty",
                         }),
                     ),
-                    (
-                        "operational".into(),
-                        match &r.operational {
-                            Uncertain::Known(b) => Val::Bool(*b),
-                            Uncertain::Unknown(reason) => Val::Unknown {
-                                reason: reason.clone(),
-                                subject: r.id.clone(),
-                                attribute: "operational".into(),
-                            },
-                        },
-                    ),
+                    ("operational".into(), uncertain(&r.operational, &r.id, "operational")),
                     ("rehypothecated".into(), Val::Bool(r.rehypothecated)),
                     ("contract".into(), Val::Ctor("REP".into(), vec![date(r.maturity)])),
                 ],
@@ -121,28 +182,39 @@ pub fn load(repos: &[Repo]) -> World {
     w
 }
 
+/// ARF 210.1A Section A stock items (1.1-3.3, input cells).
+pub fn stock_items() -> Vec<&'static str> {
+    input_items(|id| ["1.", "2.", "3."].iter().any(|p| id.starts_with(p)) && !id.starts_with("1.5") && !id.starts_with("2.5")
+        && !id.starts_with("3.4") && !id.starts_with("3.5"))
+}
+
 /// The ARF 210.1A items a secured transaction can report into (items 11 and 19).
 pub fn secured_items() -> Vec<&'static str> {
+    input_items(|id| id.starts_with("11.") || id.starts_with("19."))
+}
+
+fn input_items(keep: impl Fn(&str) -> bool) -> Vec<&'static str> {
     arf210::lcr_all()
         .items
         .iter()
-        .filter(|it| (it.id.starts_with("11.") || it.id.starts_with("19.")) && !it.header)
+        .filter(|it| keep(&it.id) && !it.header)
         .filter(|it| matches!(it.cell("amount"), Some(prudence_core::Cell::Input { .. })))
         .map(|it| it.id.as_str())
         .collect()
 }
 
 pub struct Run {
-    /// ARF 210.1A column-1 amounts (AUD), from `contribution`.
+    /// ARF 210.1A column-1 amounts (AUD): Section A from `stock`, items 11
+    /// and 19 from `contribution`.
     pub items: BTreeMap<String, Q>,
     /// Mechanical unwind per HQLA class (AUD), from `unwind`.
     pub unwind: BTreeMap<HqlaClass, Q>,
     pub assumptions: BTreeMap<(String, String), (String, String)>,
 }
 
-/// Run the module over a portfolio as at `reporting_date`.
-pub fn run(repos: &[Repo], reporting_date: NaiveDate, mode: Mode) -> Result<Run, String> {
-    let world = load(repos);
+/// Run the module over holdings and secured transactions as at `reporting_date`.
+pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode: Mode) -> Result<Run, String> {
+    let world = load(holdings, repos);
     let opts = Options { mode, sense: None, params: vec![("reporting_date".into(), date(reporting_date))] };
     let it = Interp::new(module(), &world, opts)?;
     let num = |v: Val| match v {
@@ -150,6 +222,13 @@ pub fn run(repos: &[Repo], reporting_date: NaiveDate, mode: Mode) -> Result<Run,
         other => Err(format!("expected a number, got {other:?}")),
     };
     let mut items: BTreeMap<String, Q> = secured_items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
+    let mut stock: BTreeMap<String, Q> = stock_items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
+    for (n, _) in holdings.iter().enumerate() {
+        let h = Val::Rec("Holding".into(), n);
+        for (item, total) in stock.iter_mut() {
+            *total += num(it.call_fn("stock", vec![h.clone(), Val::Str(item.clone())])?)?;
+        }
+    }
     let mut unwind: BTreeMap<HqlaClass, Q> = HqlaClass::ALL.iter().map(|k| (*k, Q::default())).collect();
     for (n, _) in repos.iter().enumerate() {
         let r = Val::Rec("Repo".into(), n);
@@ -160,6 +239,7 @@ pub fn run(repos: &[Repo], reporting_date: NaiveDate, mode: Mode) -> Result<Run,
             *total += num(it.call_fn("unwind", vec![r.clone(), Val::Ctor(k.ctor().into(), vec![])])?)?;
         }
     }
+    items.extend(stock);
     Ok(Run { items, unwind, assumptions: it.assumptions() })
 }
 

@@ -44,6 +44,16 @@ def pcmp {α β : Type} [ToOpt α] [ToOpt β] (r : Int → Int → Prop) [Decida
 abbrev GroupId := Nat
 abbrev ProductClass := Nat
 
+inductive AssetKind where
+  | NotesAndCoin
+  | RbaBalance
+  | ForeignCentralBankBalance
+  | DebtSecurity
+  | CoveredBond
+  | Rmbs
+  | Equity
+  deriving DecidableEq, Repr, Inhabited
+
 inductive Counterparty where
   | OffshoreCentralBank
   | DomesticSovereignOrPse
@@ -58,9 +68,35 @@ inductive HqlaClass where
   | NonHqla
   deriving DecidableEq, Repr, Inhabited
 
+inductive Issuer where
+  | AustralianGovernment
+  | StateCentralBorrowingAuthority
+  | ForeignSovereign
+  | GuaranteedByAustralianGovernment
+  | GuaranteedByForeignSovereign
+  | CentralBank
+  | PublicSectorEntity
+  | Supranational
+  | NonFinancialCorporateIssuer
+  | FinancialInstitutionIssuer
+  deriving DecidableEq, Repr, Inhabited
+
 inductive Leg where
   | Funding
   | Lending
+  deriving DecidableEq, Repr, Inhabited
+
+structure Holding where
+  kind : AssetKind
+  issuer : Issuer
+  market_value : Int
+  risk_weight : Int
+  rating_grade : Int
+  domestic_currency : Bool
+  index_constituent : Bool
+  own_or_associated : Bool
+  encumbered : Bool
+  operational : U (Bool)
   deriving DecidableEq, Repr, Inhabited
 
 inductive Contract_Repo where
@@ -82,6 +118,28 @@ structure Repo where
 structure World where
   reporting_date : Int
   known_at : Int
+
+def stock_row (W : World) (m : Mode) (h : Holding) : String :=
+  (if (h.encumbered || (!(resolve m h.operational false (!false)))) then "none" else (match h.kind with
+    | .NotesAndCoin => "1.1"
+    | .RbaBalance => "1.2.1"
+    | .ForeignCentralBankBalance => "1.2.2"
+    | .DebtSecurity => (if (h.risk_weight == (0 : Int)) then (match h.issuer with
+    | .AustralianGovernment => "1.3.1"
+    | .StateCentralBorrowingAuthority => "1.3.2"
+    | .ForeignSovereign => "1.3.3"
+    | .GuaranteedByAustralianGovernment => "1.3.4"
+    | .GuaranteedByForeignSovereign => "1.3.5"
+    | .CentralBank => "1.3.6"
+    | .PublicSectorEntity => "1.3.7"
+    | .Supranational => "1.3.8"
+    | _ => "none") else (if (((h.issuer == Issuer.ForeignSovereign) || (h.issuer == Issuer.CentralBank)) && (pcmp (· > ·) h.risk_weight (20 : Int))) then (if h.domestic_currency then "1.4.1" else "1.4.2") else (if ((h.risk_weight == (20 : Int)) && ((h.issuer == Issuer.ForeignSovereign) || (h.issuer == Issuer.CentralBank))) then "2.1" else (if ((h.risk_weight == (20 : Int)) && ((h.issuer == Issuer.PublicSectorEntity) || (h.issuer == Issuer.Supranational))) then "2.2" else (if ((h.issuer == Issuer.NonFinancialCorporateIssuer) && (h.rating_grade == (1 : Int))) then "2.3" else (if (((h.issuer == Issuer.NonFinancialCorporateIssuer) && (pcmp (· ≥ ·) h.rating_grade (2 : Int))) && (pcmp (· ≤ ·) h.rating_grade (3 : Int))) then "3.2" else "none"))))))
+    | .CoveredBond => (if ((h.rating_grade == (1 : Int)) && (!h.own_or_associated)) then "2.4" else "none")
+    | .Rmbs => (if ((h.rating_grade == (1 : Int)) && (!h.own_or_associated)) then "3.1" else "none")
+    | .Equity => (if ((h.issuer == Issuer.NonFinancialCorporateIssuer) && h.index_constituent) then "3.3" else "none")))
+
+def stock (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
+  (if (i == (stock_row W m h)) then h.market_value else (0 : Int))
 
 def maturing (W : World) (m : Mode) (r : Repo) : Bool :=
   (match r.contract with

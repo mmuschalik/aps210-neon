@@ -1,4 +1,5 @@
-// Prudence source: secured funding, secured lending and the 30-day unwind
+// Prudence source: the stock of liquid assets, secured funding, secured
+// lending and the 30-day unwind
 // (design.txt §4.A.4 "Declarative Counterfactual Transitions").
 //
 // Two views of the same maturing transactions:
@@ -20,6 +21,26 @@ module SecuredFunding(jurisdiction: AU_APRA) {
   type HqlaClass = HQLA1 | HQLA2A | RmbsHqla2B | NonRmbsHqla2B | NonHqla
   type Leg = Funding | Lending
   type Counterparty = OffshoreCentralBank | DomesticSovereignOrPse | OtherCounterparty
+  type AssetKind = NotesAndCoin | RbaBalance | ForeignCentralBankBalance | DebtSecurity | CoveredBond | Rmbs | Equity
+  type Issuer = AustralianGovernment | StateCentralBorrowingAuthority | ForeignSovereign | GuaranteedByAustralianGovernment
+              | GuaranteedByForeignSovereign | CentralBank | PublicSectorEntity | Supranational
+              | NonFinancialCorporateIssuer | FinancialInstitutionIssuer
+
+  // A holding in the stock of liquid assets (Section A).
+  data Holding {
+    kind              : AssetKind
+    issuer            : Issuer
+    market_value      : Money<AUD, MarketValue>
+    risk_weight       : Int                          @cite("APS 112 Attachment B")
+    rating_grade      : Int                          @cite("APS 112 Attachment F; ARS 'credit rating grade'")
+    domestic_currency : Bool                         // issued in the currency where the liquidity risk is taken
+    index_constituent : Bool                         // equities: in the major index (Att A para 12(c))
+    // Issued (or, for RMBS, the mortgages originated) by the ADI itself or an
+    // associated entity.
+    own_or_associated : Bool                         @cite("Att A paras 10(b), 12(a)")
+    encumbered        : Bool                         // pledged, e.g. as repo collateral (Att A para 23)
+    operational       : Uncertain<Bool>              @cite("Att A paras 22-25")
+  }
 
   // ACTUS REP (repurchase agreement): cash against collateral, unwound at maturity.
   data Repo : Contract<REP(maturity: Date)> {
@@ -34,6 +55,45 @@ module SecuredFunding(jurisdiction: AU_APRA) {
     // Received collateral re-used to cover short positions.
     rehypothecated   : Bool                         @cite("Att A para 56")
   }
+
+  // ---------------------------------------------------------------- the stock (Section A)
+
+  // ARF 210.1A Section A item of a holding, or "none" if it is not HQLA or
+  // cannot be counted (encumbered, or the operational requirements are not
+  // shown to be met).
+  fn stock_row(h: Holding) -> String =
+    if h.encumbered || !conservative(h.operational, worst: false) then "none"     @cite("Att A paras 22-25")
+    else match h.kind {
+      NotesAndCoin              => "1.1"
+      RbaBalance                => "1.2.1"
+      ForeignCentralBankBalance => "1.2.2"
+      DebtSecurity =>
+        if h.risk_weight == 0 then match h.issuer {
+          AustralianGovernment             => "1.3.1"
+          StateCentralBorrowingAuthority   => "1.3.2"
+          ForeignSovereign                 => "1.3.3"
+          GuaranteedByAustralianGovernment => "1.3.4"
+          GuaranteedByForeignSovereign     => "1.3.5"
+          CentralBank                      => "1.3.6"
+          PublicSectorEntity               => "1.3.7"
+          Supranational                    => "1.3.8"
+          _                                => "none"
+        }                                                                    @cite("Att A para 9(c)")
+        else if (h.issuer == ForeignSovereign || h.issuer == CentralBank) && h.risk_weight > 20 then
+          (if h.domestic_currency then "1.4.1" else "1.4.2")               @cite("Att A para 9(d)-(e)")
+        else if h.risk_weight == 20 && (h.issuer == ForeignSovereign || h.issuer == CentralBank) then "2.1"
+        else if h.risk_weight == 20 && (h.issuer == PublicSectorEntity || h.issuer == Supranational) then "2.2"
+        else if h.issuer == NonFinancialCorporateIssuer && h.rating_grade == 1 then "2.3"     @cite("Att A para 10(b)")
+        else if h.issuer == NonFinancialCorporateIssuer && h.rating_grade >= 2 && h.rating_grade <= 3 then "3.2"
+                                                                             @cite("Att A para 12(b)")
+        else "none"
+      CoveredBond => if h.rating_grade == 1 && !h.own_or_associated then "2.4" else "none"    @cite("Att A para 10(b)")
+      Rmbs        => if h.rating_grade == 1 && !h.own_or_associated then "3.1" else "none"    @cite("Att A para 12(a)")
+      Equity      => if h.issuer == NonFinancialCorporateIssuer && h.index_constituent then "3.3" else "none"
+    }
+
+  fn stock(h: Holding, i: String) -> Money<AUD, MarketValue> =
+    if i == stock_row(h) then h.market_value else 0.AUD
 
   // ---------------------------------------------------------------- facts about a transaction
 
