@@ -81,6 +81,8 @@ pub struct Classification {
     pub params: Params,
     pub slices: Vec<Slice>,
     pub assumptions: Vec<Assumption>,
+    /// FCS cover allocations with their LP certificates.
+    pub allocations: Vec<prudence_core::interp::Allocation>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -208,10 +210,11 @@ pub fn classify(book: &Book, params: &Params) -> Result<Classification, Classify
         conserve(&a.balance, &parts).map_err(|detail| ClassifyError::Conservation { account: a.id.clone(), detail })?;
     }
 
+    let allocations = run.allocations;
     let assumptions = run
         .assumptions
         .into_iter()
         .map(|((subject, attr), (assumed, reason))| Assumption { subject, attribute: attribute(&attr), assumed, reason })
         .collect();
-    Ok(Classification { params: params.clone(), slices, assumptions })
+    Ok(Classification { params: params.clone(), slices, assumptions, allocations })
 }

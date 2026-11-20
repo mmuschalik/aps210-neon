@@ -153,6 +153,8 @@ pub struct SpecRun {
     pub slices: Vec<SpecSlice>,
     /// (subject, attribute) -> (value assumed, reason)
     pub assumptions: std::collections::BTreeMap<(String, String), (String, String)>,
+    /// FCS cover allocations with their LP certificates.
+    pub allocations: Vec<prudence_core::interp::Allocation>,
 }
 
 /// Interpret the module for `book` under `params`.
@@ -189,7 +191,7 @@ pub fn run(book: &Book, params: &Params) -> Result<SpecRun, String> {
         slices.push(SpecSlice { account: s.subject, amount: s.amount, lcr_item, nsfr_item, nsfr_bucket, covered: s.split, cites: s.cites });
     }
     slices.sort();
-    Ok(SpecRun { slices, assumptions: out.assumptions })
+    Ok(SpecRun { slices, assumptions: out.assumptions, allocations: out.allocations })
 }
 
 /// The Lean model generated from the spec, measured on ARF 210.1A (weights)

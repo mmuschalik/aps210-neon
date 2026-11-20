@@ -1,0 +1,15 @@
+[package]
+name = "checker"
+version = "0.1.0"
+description = "Trusted verification gate: re-derives and checks a return before sign-off, and emits a content-addressed APS 310 audit bundle"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The trusted computing base: exact rationals, the LP certificate check, the
+# form evaluator and the form specs - not the Prudence interpreter, the LP
+# solver, or any module crate.
+[dependencies]
+prudence-core = { path = "../prudence-core" }
+arf210 = { path = "../arf210" }
+serde_json.workspace = true

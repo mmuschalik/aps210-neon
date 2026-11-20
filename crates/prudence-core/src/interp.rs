@@ -126,6 +126,10 @@ pub struct Allocation {
     pub group: String,
     /// Marginal objective value per unit of the budget (shadow price).
     pub shadow_price: Option<Q>,
+    /// The LP and its primal-dual solution: a certificate an independent
+    /// checker can verify without trusting the solver (lp::verify).
+    pub lp: Lp,
+    pub solution: crate::lp::Solution,
 }
 
 #[derive(Debug)]
@@ -932,10 +936,16 @@ impl<'a> Interp<'a> {
             let sol = crate::lp::solve_lexicographic(&lp).map_err(at)?;
             let shadow_price =
                 lp.rows.iter().zip(&sol.duals).find(|((_, r, _), _)| *r == Rel::Eq).map(|(_, y)| y.clone());
-            for (v, q) in vars.iter().zip(sol.x) {
-                result.insert(v.clone(), Val::Num(q));
+            for (v, q) in vars.iter().zip(&sol.x) {
+                result.insert(v.clone(), Val::Num(q.clone()));
             }
-            self.allocations.borrow_mut().push(Allocation { alloc: name.into(), group: self.id_of(&g), shadow_price });
+            self.allocations.borrow_mut().push(Allocation {
+                alloc: name.into(),
+                group: self.id_of(&g),
+                shadow_price,
+                lp,
+                solution: sol,
+            });
         }
         let v = Val::Map(result, Some(Box::new(Val::num(0))));
         self.alloc_cache.borrow_mut().insert(name.into(), v.clone());

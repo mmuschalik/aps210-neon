@@ -15,7 +15,8 @@ pub const SPEC_HEADER: [&str; 3] = [
     "Format with: cargo run -p arf210 -- fmt <form>",
 ];
 
-const SPECS: [(&str, &str); 4] = [
+/// (form code, source) of every form spec.
+pub const SPECS: [(&str, &str); 4] = [
     ("ARF 210.1A", include_str!("../../../specs/arf210/arf_210_1a.prd")),
     ("ARF 210.1B", include_str!("../../../specs/arf210/arf_210_1b.prd")),
     ("ARF 210.2", include_str!("../../../specs/arf210/arf_210_2.prd")),

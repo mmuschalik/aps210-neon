@@ -167,3 +167,85 @@ fn amounts_must_come_with_a_currency() {
     let rates: BTreeMap<String, Q> = [("12.1".to_string(), Q::default())].into();
     assert!(assemble(&[], &rates).is_err());
 }
+
+// ---------------------------------------------------------------- the trusted gate
+
+/// The ledger as the bank's finance system would supply it.
+fn with_ledger(mut b: Bank) -> Bank {
+    let r = lcr_return(&b, rd(), Mode::Conservative).unwrap();
+    for (id, kind, bal, _) in &r.records {
+        let acct = b.gl_account.get(id).cloned().unwrap_or_else(|| default_account(kind).into());
+        *b.gl.entry(acct).or_default() += bal.clone();
+    }
+    b
+}
+
+fn gate(b: &Bank) -> (checker::Package, checker::Report) {
+    let r = lcr_return(b, rd(), Mode::Conservative).unwrap();
+    let p = package(b, &r, rd());
+    let rep = checker::check(&p);
+    (p, rep)
+}
+
+#[test]
+fn an_honest_return_passes_and_gets_a_content_addressed_bundle() {
+    let b = with_ledger(bank(true));
+    let (p, rep) = gate(&b);
+    assert!(rep.passed(), "{:?}", rep.failures());
+    assert!(!p.certificates.is_empty(), "the FCS allocations carry LP certificates");
+    let bundle = rep.bundle.unwrap();
+    // FX funding swaps make the currency split differ from the totals: a warning.
+    assert!(bundle["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("ccy")));
+    // Same data and specs: same bundle id.
+    let again = checker::check(&p).bundle.unwrap();
+    assert_eq!(bundle["bundle_id"], again["bundle_id"]);
+    assert_eq!(bundle["bundle_id"].as_str().unwrap().len(), 64);
+    // A changed spec changes the spec version and the bundle id.
+    let mut q = p.clone();
+    q.specs[0].1.push(' ');
+    let changed = checker::check(&q).bundle.unwrap();
+    assert_ne!(bundle["spec_version"], changed["spec_version"]);
+    assert_ne!(bundle["bundle_id"], changed["bundle_id"]);
+}
+
+fn fails(p: &checker::Package, check: &str) {
+    let rep = checker::check(p);
+    assert!(rep.bundle.is_none(), "a failing return must not get a bundle");
+    let failed: Vec<_> = rep.checks.iter().filter(|(_, f)| !f.is_empty()).map(|(c, _)| *c).collect();
+    assert_eq!(failed, [check], "{:?}", rep.failures());
+}
+
+#[test]
+fn the_gate_catches_each_kind_of_error() {
+    let b = with_ledger(bank(false));
+    let (p, rep) = gate(&b);
+    assert!(rep.passed(), "{:?}", rep.failures());
+
+    // A record missing from the run: the ledger does not tie out.
+    let mut q = p.clone();
+    q.records.retain(|r| r.id != "acgb");
+    fails(&q, "gl tie-out");
+
+    // A slice lost from a split deposit.
+    let mut q = p.clone();
+    let i = q.slices.iter().position(|(r, _)| r == "corp-usd").unwrap();
+    q.slices.remove(i);
+    fails(&q, "conservation");
+
+    // A lodged figure that the contributions do not support.
+    let mut q = p.clone();
+    *q.lcr_inputs.get_mut("20.3").unwrap() += Q::from_integer(1.into());
+    fails(&q, "inputs = contributions");
+
+    // An HQLA security also counted as a maturing-securities inflow.
+    let mut q = p.clone();
+    let part = checker::Part { record: "acgb".into(), item: "21.3".into(), currency: "AUD".into(), amount: m(1), stream: checker::Stream::Both };
+    q.parts.push(part);
+    q.lcr_inputs = checker::derive_lcr_inputs(&q.parts, &q.rates).unwrap();
+    fails(&q, "no double counting");
+
+    // A tampered LP certificate.
+    let mut q = p.clone();
+    q.certificates[0].solution.value += Q::from_integer(1.into());
+    fails(&q, "lp certificates");
+}

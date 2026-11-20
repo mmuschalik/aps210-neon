@@ -107,12 +107,36 @@ pub struct Bank {
     pub derivatives: derivatives::Book,
     /// Record id -> currency (default AUD).
     pub currency: BTreeMap<String, String>,
+    /// The general ledger: account -> balance (AUD).
+    pub gl: BTreeMap<String, Q>,
+    /// Record id -> ledger account, overriding `default_account`.
+    pub gl_account: BTreeMap<String, String>,
+}
+
+/// The ledger account a balance-sheet record posts to by default.
+pub fn default_account(kind: &str) -> &'static str {
+    match kind {
+        "retail" => "2100 Retail and SME deposits",
+        "wholesale" => "2200 Wholesale deposits",
+        "holding" => "1200 Securities",
+        "repo-funding" => "2300 Repurchase agreements",
+        "repo-lending" => "1300 Reverse repurchase agreements",
+        "loan" => "1400 Loans and advances",
+        _ => "1500 Derivatives (net mark-to-market)",
+    }
 }
 
 pub struct Return {
     pub parts: Vec<Part>,
     /// ARF 210.1A inputs, AUD millions.
     pub inputs: BTreeMap<String, Q>,
+    /// ARF 210.6 inputs from the modules that model it, AUD millions.
+    pub nsfr_inputs: BTreeMap<String, Q>,
+    /// Balance-sheet records: (id, kind, carrying amount, split?).
+    pub records: Vec<(String, &'static str, Q, bool)>,
+    /// (record, amount) per slice of split records.
+    pub slices: Vec<(String, Q)>,
+    pub certificates: Vec<checker::Certificate>,
     /// (module, subject, attribute) -> (assumed value, reason).
     pub assumptions: Vec<(&'static str, String, String, String, String)>,
 }
@@ -126,20 +150,59 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         parts.push(Part { module, record: record.into(), item: item.into(), currency, amount, stream });
     };
 
+    let mut nsfr: BTreeMap<String, Q> = BTreeMap::new();
+    let mut nsfr_add = |item: &str, col: &str, q: &Q| {
+        let k = if col == "amount" { item.to_string() } else { format!("{item}:{col}") };
+        *nsfr.entry(k).or_default() += q / million();
+    };
+    let mut records = Vec::new();
+    let mut slices = Vec::new();
+    let mut certificates = Vec::new();
+    let mut certify = |module: &str, allocs: Vec<prudence_core::interp::Allocation>| {
+        for a in allocs {
+            certificates.push(checker::Certificate {
+                name: format!("{module}/{}/{}", a.alloc, a.group),
+                lp: a.lp,
+                solution: a.solution,
+            });
+        }
+    };
+
     let c = deposits::classify(&bank.retail, &deposits::Params { mode, ..deposits::Params::new(reporting_date) })
         .map_err(|e| format!("{e:?}"))?;
+    for a in &bank.retail.accounts {
+        records.push((a.id.clone(), "retail", a.balance.amount().clone(), true));
+    }
     for s in &c.slices {
+        slices.push((s.account_id.clone(), s.amount.amount().clone()));
+        nsfr_add(s.nsfr_item, s.nsfr_bucket, s.amount.amount());
         if let Some(i) = s.lcr_item {
             push("retail", &s.account_id, i, s.amount.amount().clone(), ccy(&s.account_id), Stream::Both);
         }
     }
+    certify("retail", c.allocations);
     for a in &c.assumptions {
         assumptions.push(("retail", a.subject.clone(), a.attribute.to_string(), a.assumed.clone(), a.reason.clone()));
     }
-    for s in deposits::wholesale::run(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, mode)? {
+    let (ws, allocs) =
+        deposits::wholesale::run_with_certificates(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, mode)?;
+    certify("wholesale", allocs);
+    for d in &bank.wholesale_deposits {
+        records.push((d.id.clone(), "wholesale", d.balance.clone(), true));
+    }
+    for s in ws {
+        slices.push((s.account.clone(), s.amount.clone()));
+        nsfr_add(&s.nsfr.0, &s.nsfr.1, &s.amount);
         if let Some(i) = &s.lcr_item {
             push("wholesale", &s.account, i, s.amount.clone(), ccy(&s.account), Stream::Both);
         }
+    }
+    for h in &bank.holdings {
+        records.push((h.id.clone(), "holding", h.market_value.clone(), false));
+    }
+    for r in &bank.repos {
+        let kind = if r.leg == secured::Leg::Funding { "repo-funding" } else { "repo-lending" };
+        records.push((r.id.clone(), kind, r.cash.clone(), false));
     }
     let r = secured::run(&bank.holdings, &bank.repos, reporting_date, mode, bank.has_clf)?;
     for (id, i, q) in r.parts {
@@ -157,11 +220,24 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     }
     keep("obligations", r.assumptions);
     let r = loans::run(&bank.loans, reporting_date, mode)?;
+    for l in &bank.loans {
+        records.push((l.id.clone(), "loan", l.balance.clone(), true));
+    }
+    for (id, item, bucket, q) in &r.slices {
+        slices.push((id.clone(), q.clone()));
+        nsfr_add(item, bucket, q);
+    }
     for (id, i, q) in r.parts {
         push("loans", &id, &i, q, ccy(&id), Stream::Both);
     }
     keep("loans", r.assumptions);
     let r = derivatives::run(&bank.derivatives, reporting_date, reporting_date, mode)?;
+    for (k, t) in bank.derivatives.trades.iter().enumerate() {
+        records.push((format!("trade{k}"), "derivative", t.mtm.clone(), false));
+    }
+    for (item, q) in &r.nsfr {
+        nsfr_add(item, "amount", q);
+    }
     for (id, i, q) in r.parts {
         let stream = if i == "13.1" || i == "21.1" { Stream::Total } else { Stream::Both };
         push("derivatives", &id, &i, q, ccy(&id), stream);
@@ -171,5 +247,58 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     }
     keep("derivatives", r.assumptions);
     let inputs = assemble(&parts, &BTreeMap::new())?;
-    Ok(Return { parts, inputs, assumptions })
+    Ok(Return { parts, inputs, nsfr_inputs: nsfr, records, slices, certificates, assumptions })
+}
+
+/// The checker's view of a return: plain data, nothing it has to trust.
+pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker::Package {
+    let stream = |s: Stream| match s {
+        Stream::Both => checker::Stream::Both,
+        Stream::Total => checker::Stream::Total,
+        Stream::Split => checker::Stream::Split,
+    };
+    let mut specs: Vec<(String, String)> =
+        arf210::SPECS.iter().map(|(code, src)| (format!("forms/{code}"), src.to_string())).collect();
+    for (path, src) in [
+        ("specs/deposits/retail_sme.prd", deposits::prudence::SOURCE),
+        ("specs/deposits/wholesale.prd", deposits::wholesale::SOURCE),
+        ("specs/secured/secured_funding.prd", secured::SOURCE),
+        ("specs/obligations/commitments.prd", obligations::SOURCE),
+        ("specs/loans/loans.prd", loans::SOURCE),
+        ("specs/derivatives/derivatives.prd", derivatives::SOURCE),
+    ] {
+        specs.push((path.into(), src.into()));
+    }
+    checker::Package {
+        reporting_date: reporting_date.to_string(),
+        gl: bank.gl.clone(),
+        records: ret
+            .records
+            .iter()
+            .map(|(id, kind, balance, split)| checker::Record {
+                id: id.clone(),
+                gl_account: bank.gl_account.get(id).cloned().unwrap_or_else(|| default_account(kind).into()),
+                balance: balance.clone(),
+                split: *split,
+            })
+            .collect(),
+        slices: ret.slices.clone(),
+        parts: ret
+            .parts
+            .iter()
+            .map(|p| checker::Part {
+                record: p.record.clone(),
+                item: p.item.clone(),
+                currency: p.currency.clone(),
+                amount: p.amount.clone(),
+                stream: stream(p.stream),
+            })
+            .collect(),
+        rates: BTreeMap::new(),
+        lcr_inputs: ret.inputs.clone(),
+        nsfr_inputs: ret.nsfr_inputs.clone(),
+        certificates: ret.certificates.clone(),
+        assumptions: ret.assumptions.iter().map(|(m, s, a, v, w)| (format!("{m}/{s}"), a.clone(), v.clone(), w.clone())).collect(),
+        specs,
+    }
 }

@@ -200,6 +200,19 @@ fn eval(e: &Expr, form: &Form, values: &mut HashMap<Ref, Value>) -> Value {
     }
 }
 
+/// A form theorem evaluated on one concrete return: the proven property,
+/// checked again on the numbers about to be lodged.
+pub fn holds(p: &crate::ir::Prop, ev: &mut Evaluation) -> Option<bool> {
+    use crate::ir::Prop;
+    Some(match p {
+        Prop::Cmp(c) => cmp(c, ev.form, &mut ev.values)?,
+        Prop::And(a, b) => holds(a, ev)? && holds(b, ev)?,
+        Prop::Or(a, b) => holds(a, ev)? || holds(b, ev)?,
+        Prop::Not(a) => !holds(a, ev)?,
+        Prop::Implies(a, b) => !holds(a, ev)? || holds(b, ev)?,
+    })
+}
+
 fn cmp(c: &Cmp, form: &Form, values: &mut HashMap<Ref, Value>) -> Option<bool> {
     let (Value::Num(a), Value::Num(b)) = (eval(&c.a, form, values), eval(&c.b, form, values)) else {
         return None;

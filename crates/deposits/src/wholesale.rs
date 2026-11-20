@@ -60,6 +60,16 @@ fn unknown(reason: &str, subject: &str, attribute: &str) -> Val {
 }
 
 pub fn run(customers: &[Customer], deposits: &[Deposit], reporting_date: NaiveDate, mode: Mode) -> Result<Vec<WSlice>, String> {
+    Ok(run_with_certificates(customers, deposits, reporting_date, mode)?.0)
+}
+
+/// As `run`, with the FCS allocations and their LP certificates.
+pub fn run_with_certificates(
+    customers: &[Customer],
+    deposits: &[Deposit],
+    reporting_date: NaiveDate,
+    mode: Mode,
+) -> Result<(Vec<WSlice>, Vec<prudence_core::interp::Allocation>), String> {
     let mut w = World::default();
     let mut cref = BTreeMap::new();
     for c in customers {
@@ -125,5 +135,5 @@ pub fn run(customers: &[Customer], deposits: &[Deposit], reporting_date: NaiveDa
         slices.push(WSlice { account: s.subject, amount: s.amount, lcr_item, nsfr });
     }
     slices.sort();
-    Ok(slices)
+    Ok((slices, out.allocations))
 }
