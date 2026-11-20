@@ -103,7 +103,7 @@ pub fn resolve(m: &Module, known_forms: &[&str]) -> Result<(), Vec<String>> {
                 r.ty(ty);
                 r.expr(body);
             }
-            DeclKind::Partition { var, source, targets, split, split_var, split_by, cases } => {
+            DeclKind::Partition { var, source, targets, split, split_var, split_by, more_splits, cases } => {
                 r.ty(source);
                 for t in targets {
                     if !known_forms.contains(&t.as_str()) {
@@ -114,6 +114,10 @@ pub fn resolve(m: &Module, known_forms: &[&str]) -> Result<(), Vec<String>> {
                 r.expr(split);
                 r.expr(split_by);
                 r.push([split_var.clone()]);
+                for (n, e) in more_splits {
+                    r.expr(e);
+                    r.push([n.clone()]);
+                }
                 for c in cases {
                     r.expr(&c.cond);
                     let mut n = 0;
@@ -128,6 +132,9 @@ pub fn resolve(m: &Module, known_forms: &[&str]) -> Result<(), Vec<String>> {
                     for _ in 0..n {
                         r.pop();
                     }
+                }
+                for _ in more_splits {
+                    r.pop();
                 }
                 r.pop();
                 r.pop();

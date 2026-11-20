@@ -104,8 +104,10 @@ pub struct Options {
 pub struct Slice {
     pub subject: String,
     pub amount: Q,
-    /// The split variable's value for this portion (e.g. `covered`).
+    /// The first split variable's value for this portion (e.g. `covered`).
     pub split: bool,
+    /// Every split variable's value for this portion.
+    pub splits: Vec<(String, bool)>,
     pub outputs: Vec<(String, Val)>,
     /// `@cite`s of every rule evaluated for this portion (clause-level provenance).
     pub cites: Vec<String>,
@@ -950,8 +952,12 @@ impl<'a> Interp<'a> {
 
     // ------------------------------------------------------------------ partition
     fn partition(&self, d: &Decl) -> R<Vec<Slice>> {
-        let DeclKind::Partition { var, source, split, split_var, split_by, cases, .. } = &d.kind else { unreachable!() };
+        let DeclKind::Partition { var, source, split, split_var, split_by, more_splits, cases, .. } = &d.kind else {
+            unreachable!()
+        };
         let Type::Named { name: src, .. } = source else { return Err("partition source must be a data type".into()) };
+        let splits: Vec<(&String, &Expr)> =
+            std::iter::once((split_var, split_by)).chain(more_splits.iter().map(|(n, e)| (n, e))).collect();
         let mut out = Vec::new();
         let mut rows = self.rows(src);
         rows.sort_by_key(|r| self.id_of(r));
@@ -959,20 +965,45 @@ impl<'a> Interp<'a> {
             let subject = self.id_of(&row);
             let mut scope: Scope = vec![(var.clone(), row.clone())];
             let whole = num(&self.eval(split, &mut scope)?)?;
-            let part = num(&self.eval(split_by, &mut scope)?)?;
-            let rest = &whole - &part;
-            if part.is_negative() || rest.is_negative() {
-                return Err(format!("{subject}: split {} of {} is out of range", display(&part), display(&whole)));
+            // Portions: each split divides every portion of the previous one.
+            // The `true` part is the split's amount; empty parts are dropped,
+            // except that every subject keeps at least one portion.
+            let mut portions: Vec<(Vec<(String, bool)>, Q)> = vec![(vec![], whole.clone())];
+            for (name, amount) in &splits {
+                let mut next = Vec::new();
+                for (flags, amt) in portions {
+                    let mut sc = scope.clone();
+                    sc.extend(flags.iter().map(|(n, b)| (n.clone(), Val::Bool(*b))));
+                    let part = num(&self.eval(amount, &mut sc)?)?;
+                    let rest = &amt - &part;
+                    if part.is_negative() || rest.is_negative() {
+                        return Err(format!("{subject}: split `{name}` of {} out of {} is out of range", display(&part), display(&amt)));
+                    }
+                    let mut emitted = false;
+                    if !part.is_zero() {
+                        let mut f = flags.clone();
+                        f.push(((*name).clone(), true));
+                        next.push((f, part));
+                        emitted = true;
+                    }
+                    if !rest.is_zero() || !emitted {
+                        let mut f = flags;
+                        f.push(((*name).clone(), false));
+                        next.push((f, rest));
+                    }
+                }
+                portions = next;
             }
-            let mut portions = Vec::new();
-            if !part.is_zero() {
-                portions.push((true, part));
+            // Keep a single empty portion only if the subject has nothing else.
+            if portions.len() > 1 {
+                portions.retain(|(_, a)| !a.is_zero());
+                if portions.is_empty() {
+                    unreachable!()
+                }
             }
-            if !rest.is_zero() || portions.is_empty() {
-                portions.push((false, rest));
-            }
-            for (flag, amount) in portions {
-                scope.push((split_var.clone(), Val::Bool(flag)));
+            for (flags, amount) in portions {
+                let mark0 = scope.len();
+                scope.extend(flags.iter().map(|(n, b)| (n.clone(), Val::Bool(*b))));
                 *self.trace.borrow_mut() = Some(BTreeSet::new());
                 let mut hit = None;
                 for (ci, c) in cases.iter().enumerate() {
@@ -985,7 +1016,6 @@ impl<'a> Interp<'a> {
                 }
                 let ci = hit.ok_or_else(|| format!("{subject}: no partition case matches"))?;
                 let c = &cases[ci];
-                let mark = scope.len();
                 for (p, e) in &c.lets {
                     let v = self.eval(e, &mut scope)?;
                     if !self.bind(p, &v, &mut scope) {
@@ -997,10 +1027,10 @@ impl<'a> Interp<'a> {
                     .iter()
                     .map(|(n, e)| Ok((n.clone(), self.eval(e, &mut scope)?)))
                     .collect::<R<Vec<_>>>()?;
-                scope.truncate(mark);
-                scope.pop();
+                scope.truncate(mark0);
                 let cites = self.trace.borrow_mut().take().unwrap_or_default().into_iter().collect();
-                out.push(Slice { subject: subject.clone(), amount, split: flag, outputs, cites });
+                let split = flags.first().map(|(_, b)| *b).unwrap_or(false);
+                out.push(Slice { subject: subject.clone(), amount, split, splits: flags, outputs, cites });
             }
         }
         Ok(out)

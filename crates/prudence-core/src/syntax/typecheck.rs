@@ -291,13 +291,18 @@ impl<'m> Checker<'m> {
                     self.expect(&ret, &got, first_pos(b), &format!("body of `{}`", d.name));
                 }
                 DeclKind::Alloc { ty, body } => self.alloc(ty, body),
-                DeclKind::Partition { var, source, split, split_var, split_by, cases, .. } => {
+                DeclKind::Partition { var, source, split, split_var, split_by, more_splits, cases, .. } => {
                     let st = self.resolve_ty(source);
                     self.scopes.push(vec![(var.clone(), st)]);
                     let whole = self.expr(split);
                     let part = self.expr(split_by);
                     self.expect(&whole, &part, first_pos(split_by), "partition split");
                     self.scopes.push(vec![(split_var.clone(), Ty::Bool)]);
+                    for (n, e) in more_splits {
+                        let t = self.expr(e);
+                        self.expect(&whole, &t, first_pos(e), "partition split");
+                        self.scopes.push(vec![(n.clone(), Ty::Bool)]);
+                    }
                     for c in cases {
                         let ct = self.expr(&c.cond);
                         self.want_bool(&ct, first_pos(&c.cond), "partition case");
@@ -314,6 +319,9 @@ impl<'m> Checker<'m> {
                         for _ in 0..n {
                             self.scopes.pop();
                         }
+                    }
+                    for _ in more_splits {
+                        self.scopes.pop();
                     }
                     self.scopes.pop();
                     self.scopes.pop();

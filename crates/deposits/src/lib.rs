@@ -4,6 +4,7 @@
 pub mod classify;
 pub mod model;
 pub mod prudence;
+pub mod wholesale;
 #[doc(hidden)]
 pub mod testgen;
 

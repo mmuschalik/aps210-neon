@@ -138,7 +138,18 @@ pub enum DeclKind {
     View(Expr),
     Fn { params: Vec<Field>, ret: Type, body: Option<Expr> },
     Alloc { ty: Type, body: Expr },
-    Partition { var: String, source: Type, targets: Vec<String>, split: Expr, split_var: String, split_by: Expr, cases: Vec<Case> },
+    Partition {
+        var: String,
+        source: Type,
+        targets: Vec<String>,
+        split: Expr,
+        split_var: String,
+        split_by: Expr,
+        /// Further nested splits: each divides every portion of the previous one;
+        /// its amount may refer to the earlier split variables.
+        more_splits: Vec<(String, Expr)>,
+        cases: Vec<Case>,
+    },
     Invariant(Expr),
     Theorem(Expr),
 }

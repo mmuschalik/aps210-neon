@@ -1,0 +1,102 @@
+// Prudence source: wholesale deposits - operational and non-operational
+// deposits of non-financial corporates, sovereigns/central banks/PSEs/MDBs,
+// banks and other financial institutions or legal entities.
+
+@standard("APS 210", version: "2025-07-01", clause: "Att A paras 44-50; Table 3; Att C para 14(b)")
+@guidance("APG 210", version: "2025-07", clause: "paras 132-140")
+@reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 9.2-9.5; ARF 210.6 items 8-12")
+module WholesaleDeposits(jurisdiction: AU_APRA) {
+
+  param reporting_date : Date
+  param fcs_limit      : Money<AUD, Carrying> = 250_000.AUD    @cite("APG 210 para 109")
+
+  type Kind = NonFinancialCorporate | SovereignCentralBankPseMdb | Bank | OtherFinancialInstitution | OtherLegalEntity
+
+  data Customer {
+    kind     : Kind
+    deposits : List<Deposit>
+  }
+
+  data Deposit {
+    holder  : Customer
+    balance : Money<AUD, Carrying>
+    // Withdrawable or maturing within 30 days (Att A para 45); otherwise no LCR outflow.
+    within_30_days : Bool
+    // Notice given, repayable within 30 days.
+    called         : Bool
+    fcs_eligible   : Uncertain<Bool>
+    // Clearing, custody or cash management relationship (APG 210 para 139). Conservative: false
+    operational_service : Uncertain<Bool>          @cite("Att A paras 47-49")
+    // The part of the balance needed for those services; unknown -> the
+    // whole deposit is excess (APG 210 para 135).
+    operational_balance : Uncertain<Money<AUD, Carrying>>   @cite("APG 210 paras 135-138")
+  }
+
+  fn operational_amount(d: Deposit) -> Money<AUD, Carrying> =
+    if conservative(d.operational_service, worst: false)
+    then min(d.balance, conservative(d.operational_balance, worst: 0.AUD, best: d.balance))
+    else 0.AUD                                                         @cite("Att A para 50; APG 210 para 135")
+
+  // FCS cover on operational balances, per depositor (APG 210 para 109).
+  // Every unit of cover lowers the run-off equally (25% -> 5%), so the
+  // maximum is unique in value; ties break towards earlier deposits.
+  alloc insured : ConservationSplit(Deposit.balance, per: holder) =
+    optimize per holder {
+      maximize sum(d in holder.deposits | insured[d])
+      subject to
+        sum(d in holder.deposits | insured[d])
+          <= fcs_limit
+        forall d in holder.deposits,
+          0.AUD <= insured[d] <= (if conservative(d.fcs_eligible, worst: false) then operational_amount(d) else 0.AUD)
+    }                                                                  @cite("ARS p.47")
+
+  // Non-operational: "fully covered" only if the depositor's entire aggregate
+  // deposits are within the insurance limit (ARS p.47).
+  fn entirely_insured(c: Customer) -> Bool =
+    all(x in c.deposits | conservative(x.fcs_eligible, worst: false))
+    && sum(x in c.deposits | x.balance) <= fcs_limit
+
+  fn prefix(c: Customer) -> String =
+    match c.kind {
+      NonFinancialCorporate      => "9.2"
+      SovereignCentralBankPseMdb => "9.3"
+      Bank                       => "9.4"
+      OtherFinancialInstitution  => "9.5"
+      OtherLegalEntity           => "9.5"
+    }
+
+  partition d: Deposit into Arf210_1A, Arf210_6
+      splitting d.balance by operational: operational_amount(d),
+                              covered: (if operational then insured[d] else 0.AUD) {
+    case !d.within_30_days && !d.called =>
+      lcr: none
+      nsfr: ("12", "b0")
+    case (d.within_30_days || d.called) && d.called =>
+      lcr: match d.holder.kind {
+        NonFinancialCorporate      => "9.2.7"
+        SovereignCentralBankPseMdb => "9.3.6"
+        Bank                       => "9.4.5"
+        _                          => "9.5.5"
+      }
+      nsfr: ("12", "b0")
+    case d.within_30_days && !d.called && operational =>
+      lcr: match d.holder.kind {
+        SovereignCentralBankPseMdb => if covered then "9.3.1" else "9.3.3"
+        _                          => if covered then item(prefix(d.holder), 2) else item(prefix(d.holder), 4)
+      }                                                                @cite("Att A Table 3: 5% / 25%")
+      nsfr: ("8.2", "amount")                                          @cite("Att C para 14(b)")
+    case d.within_30_days && !d.called && !operational =>
+      lcr: match d.holder.kind {
+        NonFinancialCorporate      => if entirely_insured(d.holder) then "9.2.5" else "9.2.6"
+        SovereignCentralBankPseMdb => if entirely_insured(d.holder) then "9.3.4" else "9.3.5"
+        Bank                       => "9.4.5"
+        _                          => "9.5.5"
+      }                                                                @cite("Att A Table 3: 20% / 40% / 100%")
+      // Funding < 6m (conservative bucket): corporates 50%, sovereigns 50%, FIs 0%.
+      nsfr: match d.holder.kind {
+        NonFinancialCorporate      => ("9", "b0")
+        SovereignCentralBankPseMdb => ("10", "b0")
+        _                          => ("12", "b0")
+      }                                                                @cite("Att C paras 14-15")
+  }
+}

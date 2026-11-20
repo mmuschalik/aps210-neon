@@ -262,12 +262,18 @@ impl Parser {
                 let split_var = self.ident()?;
                 self.expect_sym(":")?;
                 let split_by = self.expr()?;
+                let mut more_splits = Vec::new();
+                while self.eat_sym(",") {
+                    let n = self.ident()?;
+                    self.expect_sym(":")?;
+                    more_splits.push((n, self.expr()?));
+                }
                 self.expect_sym("{")?;
                 let mut cases = Vec::new();
                 while !self.eat_sym("}") {
                     cases.push(self.case()?);
                 }
-                (format!("partition {var}"), DeclKind::Partition { var, source, targets, split, split_var, split_by, cases })
+                (format!("partition {var}"), DeclKind::Partition { var, source, targets, split, split_var, split_by, more_splits, cases })
             }
             "invariant" | "theorem" => {
                 let name = self.ident()?;

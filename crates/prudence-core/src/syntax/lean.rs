@@ -638,7 +638,12 @@ impl<'m> Gen<'m> {
             writeln!(out, "end {}", m.name).unwrap();
             return Ok(out);
         };
-        let DeclKind::Partition { var, source, targets: tnames, split, split_var, split_by, cases } = &part.kind else { unreachable!() };
+        let DeclKind::Partition { var, source, targets: tnames, split, split_var, split_by, more_splits, cases } = &part.kind else {
+            unreachable!()
+        };
+        if !more_splits.is_empty() {
+            return Err("nested partition splits are not compiled to Lean yet".into());
+        }
         let src = self.ty(source)?;
         // The split amount is evaluated before the split variable is bound.
         let outer: BTreeSet<String> = BTreeSet::from([var.clone()]);
