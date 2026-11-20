@@ -61,6 +61,7 @@ pub struct Flow {
 pub struct CollateralFlow {
     pub set: String,
     pub amount: Q,
+    pub currency: String,
     pub valid: NaiveDate,
     pub recorded: NaiveDate,
 }
@@ -162,6 +163,7 @@ pub fn load(b: &Book) -> Result<World, String> {
                 fields: vec![
                     ("set".into(), set(&c.set)?),
                     ("amount".into(), Val::Num(c.amount.clone())),
+                    ("currency".into(), Val::Str(c.currency.clone())),
                     ("valid".into(), date(c.valid)),
                     ("recorded".into(), date(c.recorded)),
                 ],
@@ -236,6 +238,13 @@ pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mo
         parts.push(("lookback".into(), "13.6".into(), lookback.clone()));
     }
     lcr.insert("13.6".into(), lookback);
+    let ccys: std::collections::BTreeSet<&String> = book.collateral_flows.iter().map(|c| &c.currency).collect();
+    for c in ccys {
+        let q = num(it.call_fn("largest_collateral_flow_in", vec![Val::Str(c.clone())])?)?;
+        if q != Q::default() {
+            by_currency.push(("lookback".into(), "13.6".into(), c.clone(), q));
+        }
+    }
     Ok(Run { lcr, nsfr, parts, by_currency, assumptions: it.assumptions() })
 }
 

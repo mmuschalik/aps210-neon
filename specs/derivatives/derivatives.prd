@@ -56,7 +56,7 @@ module Derivatives(jurisdiction: AU_APRA) {
 
   // A realised collateral flow under a netting set: positive is received.
   // Bitemporal: `valid` is the settlement date, `recorded` when booked.
-  event CollateralFlow(set: NettingSet, amount: Money<AUD, MarketValue>)
+  event CollateralFlow(set: NettingSet, amount: Money<AUD, MarketValue>, currency: String)
 
   // ---------------------------------------------------------------- 30-day cash flows
 
@@ -97,30 +97,37 @@ module Derivatives(jurisdiction: AU_APRA) {
 
   fn lookback_start() -> Date = add_months(reporting_date, -24)
 
-  fn realised() -> List<CollateralFlow> =
-    distinct(e in events(as_of: reporting_date, known_at: known_at) where e is CollateralFlow | e)
+  // Realised flows in currency `c` ("*": every currency).
+  fn realised(c: String) -> List<CollateralFlow> =
+    distinct(e in events(as_of: reporting_date, known_at: known_at)
+             where e is CollateralFlow && (c == "*" || e.currency == c) | e)
 
   // Absolute net collateral flow over the 30 days ending on `end`: netted
   // within a netting set under an MNA, gross otherwise.
-  fn window(end: Date) -> Money<AUD, MarketValue> =
+  fn window(end: Date, c: String) -> Money<AUD, MarketValue> =
     sum(s in NettingSet |
       if nets(s)
-      then max(sum(e in realised() where e.set == s && end - 30.days < e.valid && e.valid <= end | e.amount),
-               0.AUD - sum(e in realised() where e.set == s && end - 30.days < e.valid && e.valid <= end | e.amount))
-      else sum(e in realised() where e.set == s && end - 30.days < e.valid && e.valid <= end
+      then max(sum(e in realised(c) where e.set == s && end - 30.days < e.valid && e.valid <= end | e.amount),
+               0.AUD - sum(e in realised(c) where e.set == s && end - 30.days < e.valid && e.valid <= end | e.amount))
+      else sum(e in realised(c) where e.set == s && end - 30.days < e.valid && e.valid <= end
                | max(e.amount, 0.AUD - e.amount)))
 
   // A window's contents change only when a flow enters (end = its date) or
   // leaves (end = its date + 30 days), so those ends, and the first and last
   // possible ends, cover every window in the 24 months.
-  fn window_ends() -> List<Date> =
+  fn window_ends(c: String) -> List<Date> =
     [lookback_start() + 30.days, reporting_date]
-    + distinct(e in realised() where lookback_start() + 30.days <= e.valid && e.valid <= reporting_date | e.valid)
-    + distinct(e in realised() where lookback_start() + 30.days <= e.valid + 30.days && e.valid + 30.days <= reporting_date
+    + distinct(e in realised(c) where lookback_start() + 30.days <= e.valid && e.valid <= reporting_date | e.valid)
+    + distinct(e in realised(c) where lookback_start() + 30.days <= e.valid + 30.days && e.valid + 30.days <= reporting_date
                | e.valid + 30.days)
 
-  fn largest_collateral_flow() -> Money<AUD, MarketValue> =
-    max(d in window_ends() | window(d))                                    @cite("ARS Instructions p.51, item 13.6")
+  fn largest_collateral_flow_in(c: String) -> Money<AUD, MarketValue> =
+    max(d in window_ends(c) | window(d, c))                                @cite("ARS Instructions p.51, item 13.6")
+
+  // Item 13.6 over the whole portfolio. For the currency split (items 18.x)
+  // each currency's own largest window is reported (ARS Instructions
+  // pp. 55-56: by underlying currency exposure).
+  fn largest_collateral_flow() -> Money<AUD, MarketValue> = largest_collateral_flow_in("*")
 
   // ---------------------------------------------------------------- NSFR (Att C paras 9, 27-28, 36(a))
 

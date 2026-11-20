@@ -77,7 +77,7 @@ fn unknowns_resolve_conservatively() {
 
 fn cf(s: &str, days_before: u64, amount_m: i64) -> CollateralFlow {
     let d = rd() - Days::new(days_before);
-    CollateralFlow { set: s.into(), amount: m(amount_m), valid: d, recorded: d }
+    CollateralFlow { set: s.into(), amount: m(amount_m), currency: "AUD".into(), valid: d, recorded: d }
 }
 
 #[test]
@@ -214,4 +214,23 @@ fn the_netting_invariant_is_checked() {
     let params = vec![("reporting_date".into(), date(rd())), ("known_at".into(), date(rd()))];
     let it = Interp::new(&m, &w, Options { mode: Mode::Conservative, sense: None, params }).unwrap();
     assert_eq!(it.check_invariants(), Err("invariant `netting_never_adds` violated".to_string()));
+}
+
+/// For the currency split each currency reports its own largest window; the
+/// total is the portfolio's largest window, not their sum.
+#[test]
+fn lookback_by_currency() {
+    let mut usd = cf("a", 100, -50);
+    usd.currency = "USD".into();
+    let book = Book {
+        sets: vec![set("a", Some(true))],
+        collateral_flows: vec![cf("a", 400, -30), usd],
+        ..Book::default()
+    };
+    let r = go(&book, Mode::Conservative);
+    assert_eq!(r.lcr["13.6"], m(50));
+    let mut by: Vec<(String, Q)> =
+        r.by_currency.iter().filter(|x| x.1 == "13.6").map(|x| (x.2.clone(), x.3.clone())).collect();
+    by.sort();
+    assert_eq!(by, vec![("AUD".into(), m(30)), ("USD".into(), m(50))]);
 }

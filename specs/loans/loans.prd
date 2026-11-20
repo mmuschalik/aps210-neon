@@ -8,19 +8,26 @@
 // period at rate x cycle / 12 (30E/360) on the balance outstanding.
 
 @standard("APS 210", version: "2025-07-01", clause: "Att A paras 54, 60-62 (inflows); Att C paras 21-23, 33-36 (RSF)")
-@reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A item 20; ARF 210.6 items 24, 35-37, 39")
+@reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 20, 21.4, 21.5; ARF 210.6 items 24, 35-37, 39")
 module Loans(jurisdiction: AU_APRA) {
 
   param reporting_date : Date
+  // Committed head office funding facility (foreign ADIs only, APRA approval).
+  param foreign_adi                 : Bool = false
+  param local_banking_subsidiary    : Bool = false
+  param head_office_approved        : Bool = false
+  param head_office_facility        : Money<AUD, Carrying> = 0.AUD
 
   type Borrower = RetailCustomer | Sme | NonFinancialCorporate | CentralBank | FinancialInstitution | OtherEntity
   type Product = ResidentialMortgage | OtherLoan
+  type Affiliation = External | IntraGroupBank | IntraGroupFinancial | IntraGroupOther
 
   data Loan : Contract<ANN(payment: Money<AUD, Carrying>)
                      | LAM(principal_per_period: Money<AUD, Carrying>)
                      | PAM(maturity: Date)
                      | UMP(minimum_payment: Money<AUD, Carrying>)> {
     borrower     : Borrower
+    affiliation  : Affiliation                        @cite("ARS Instructions p.59, items 20.7-20.9")
     product      : Product
     balance      : Money<AUD, Carrying>
     rate         : Rate                               // nominal annual rate
@@ -83,8 +90,41 @@ module Loans(jurisdiction: AU_APRA) {
       OtherEntity           => "20.6"
     }                                                                    @cite("Att A paras 61-62")
 
+  // "Of which" intra-group rows: ADI/bank first, then other financial
+  // institutions, then other entities, each excluding the rows before.
+  fn intra_group_row(l: Loan) -> String =
+    match l.affiliation {
+      External            => "none"
+      IntraGroupBank      => "20.7"
+      IntraGroupFinancial => "20.8"
+      IntraGroupOther     => "20.9"
+    }                                                                    @cite("ARS Instructions p.59")
+
   fn inflow(l: Loan, i: String) -> Money<AUD, Carrying> =
-    if i == inflow_row(l) then inflow_30d(l) else 0.AUD
+    if i == inflow_row(l) || i == intra_group_row(l) then inflow_30d(l) else 0.AUD
+
+  // ---------------------------------------------------------------- other contractual inflows (21.4, 21.5)
+
+  // A contractual receivable that is not a loan (e.g. settlement or fee
+  // receivables). Non-financial revenues and contingent inflows are excluded.
+  data Receivable {
+    amount                : Money<AUD, Carrying>
+    due                   : Date
+    non_financial_revenue : Bool
+    contingent            : Bool
+    performing            : Uncertain<Bool>          @cite("Att A para 54")
+  }
+
+  fn other_inflow(r: Receivable, i: String) -> Money<AUD, Carrying> =
+    if i == "21.4" && reporting_date < r.due && r.due <= reporting_date + 30.days
+       && !r.non_financial_revenue && !r.contingent && conservative(r.performing, worst: false)
+    then r.amount else 0.AUD                                             @cite("ARS Instructions p.61, item 21.4; Att A para 65")
+
+  // Item 21.5: the whole facility in column 1; the form limits what counts
+  // (min(facility, 20% of total outflows)).
+  fn head_office_support() -> Money<AUD, Carrying> =
+    if foreign_adi && !local_banking_subsidiary && head_office_approved then head_office_facility else 0.AUD
+                                                                         @cite("Att A paras 58-59; ARS Instructions p.61, item 21.5")
 
   // Principal falling due before date t (exclusive). An annuity whose
   // payment does not cover the interest amortizes negatively: its balance

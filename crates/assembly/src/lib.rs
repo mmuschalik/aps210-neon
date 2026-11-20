@@ -104,6 +104,8 @@ pub struct Bank {
     pub has_clf: bool,
     pub commitments: obligations::Book,
     pub loans: Vec<loans::Loan>,
+    /// Other contractual inflows (21.4) and head office support (21.5).
+    pub other_inflows: loans::Other,
     pub derivatives: derivatives::Book,
     /// Record id -> currency (default AUD).
     pub currency: BTreeMap<String, String>,
@@ -122,6 +124,7 @@ pub fn default_account(kind: &str) -> &'static str {
         "repo-funding" => "2300 Repurchase agreements",
         "repo-lending" => "1300 Reverse repurchase agreements",
         "loan" => "1400 Loans and advances",
+        "receivable" => "1600 Other receivables",
         _ => "1500 Derivatives (net mark-to-market)",
     }
 }
@@ -219,9 +222,12 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         push("obligations", &id, &i, q, ccy(&id), Stream::Both);
     }
     keep("obligations", r.assumptions);
-    let r = loans::run(&bank.loans, reporting_date, mode)?;
+    let r = loans::run_all(&bank.loans, &bank.other_inflows, reporting_date, mode)?;
     for l in &bank.loans {
         records.push((l.id.clone(), "loan", l.balance.clone(), true));
+    }
+    for x in &bank.other_inflows.receivables {
+        records.push((x.id.clone(), "receivable", x.amount.clone(), false));
     }
     for (id, item, bucket, q) in &r.slices {
         slices.push((id.clone(), q.clone()));
@@ -239,7 +245,7 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         nsfr_add(item, "amount", q);
     }
     for (id, i, q) in r.parts {
-        let stream = if i == "13.1" || i == "21.1" { Stream::Total } else { Stream::Both };
+        let stream = if ["13.1", "21.1", "13.6"].contains(&i.as_str()) { Stream::Total } else { Stream::Both };
         push("derivatives", &id, &i, q, ccy(&id), stream);
     }
     for (id, i, c, q) in r.by_currency {

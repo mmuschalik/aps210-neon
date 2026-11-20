@@ -74,6 +74,7 @@ fn bank(with_fx_swap: bool) -> Bank {
     b.loans.push(loans::Loan {
         id: "usd-loan".into(),
         borrower: loans::Borrower::NonFinancialCorporate,
+        affiliation: loans::Affiliation::IntraGroupOther,
         product: loans::Product::OtherLoan,
         contract: loans::Contract::Pam { maturity: rd() + Days::new(15) },
         balance: m(60),
@@ -86,6 +87,14 @@ fn bank(with_fx_swap: bool) -> Bank {
         encumbered_until: None,
     });
     b.currency.insert("usd-loan".into(), "USD".into());
+    b.other_inflows.receivables.push(loans::Receivable {
+        id: "settlement".into(),
+        amount: m(5),
+        due: rd() + Days::new(2),
+        non_financial_revenue: false,
+        contingent: false,
+        performing: Uncertain::Known(true),
+    });
     if with_fx_swap {
         // Pay AUD 100m, receive USD 102m (AUD equivalent) on the same day, to
         // fund USD assets: netted in the totals, gross in the currency split.
@@ -123,6 +132,8 @@ fn every_module_feeds_the_return_and_the_split_ties_out() {
     for module in ["retail", "wholesale", "secured", "obligations", "loans"] {
         assert!(r.parts.iter().any(|p| p.module == module), "{module}");
     }
+    assert_eq!(r.inputs["21.4"], Q::from_integer(5.into()));
+    assert_eq!(r.inputs["20.9"], r.inputs["20.3"], "the USD loan is intra-group");
     // Totals are the sum of the parts.
     let parts_total: Q = r.parts.iter().filter(|p| p.item == "20.3").map(|p| p.amount.clone()).sum();
     assert_eq!(r.inputs["20.3"].clone() * Q::from_integer(1_000_000.into()), parts_total);

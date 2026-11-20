@@ -32,6 +32,42 @@ pub enum Borrower {
     OtherEntity,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Affiliation {
+    #[default]
+    External,
+    IntraGroupBank,
+    IntraGroupFinancial,
+    IntraGroupOther,
+}
+
+/// A contractual receivable that is not a loan.
+#[derive(Clone, Debug)]
+pub struct Receivable {
+    pub id: String,
+    pub amount: Q,
+    pub due: NaiveDate,
+    pub non_financial_revenue: bool,
+    pub contingent: bool,
+    pub performing: Uncertain<bool>,
+}
+
+/// Committed head office funding facility (ARF 210.1A item 21.5).
+#[derive(Clone, Debug, Default)]
+pub struct HeadOffice {
+    pub foreign_adi: bool,
+    pub local_banking_subsidiary: bool,
+    pub approved: bool,
+    pub facility: Q,
+}
+
+/// Inflows other than loans.
+#[derive(Clone, Debug, Default)]
+pub struct Other {
+    pub receivables: Vec<Receivable>,
+    pub head_office: HeadOffice,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Product {
     ResidentialMortgage,
@@ -55,6 +91,7 @@ pub enum Contract {
 pub struct Loan {
     pub id: String,
     pub borrower: Borrower,
+    pub affiliation: Affiliation,
     pub product: Product,
     pub contract: Contract,
     pub balance: Q,
@@ -80,6 +117,10 @@ fn uncertain(u: &Uncertain<bool>, subject: &str, attribute: &str) -> Val {
 }
 
 pub fn load(loans: &[Loan]) -> World {
+    load_all(loans, &Other::default())
+}
+
+pub fn load_all(loans: &[Loan], other: &Other) -> World {
     let mut w = World::default();
     for l in loans {
         let contract = match &l.contract {
@@ -95,6 +136,7 @@ pub fn load(loans: &[Loan]) -> World {
                 fields: vec![
                     ("contract".into(), contract),
                     ("borrower".into(), Val::Ctor(format!("{:?}", l.borrower), vec![])),
+                    ("affiliation".into(), Val::Ctor(format!("{:?}", l.affiliation), vec![])),
                     ("product".into(), Val::Ctor(format!("{:?}", l.product), vec![])),
                     ("balance".into(), Val::Num(l.balance.clone())),
                     ("rate".into(), Val::Num(l.rate.clone())),
@@ -104,6 +146,21 @@ pub fn load(loans: &[Loan]) -> World {
                     ("lvr_at_most_80".into(), uncertain(&l.lvr_at_most_80, &l.id, "lvr_at_most_80")),
                     ("risk_weight".into(), Val::num(i64::from(l.risk_weight))),
                     ("encumbered_until".into(), l.encumbered_until.map(date).unwrap_or(Val::None)),
+                ],
+            },
+        );
+    }
+    for r in &other.receivables {
+        w.insert(
+            "Receivable",
+            Record {
+                id: r.id.clone(),
+                fields: vec![
+                    ("amount".into(), Val::Num(r.amount.clone())),
+                    ("due".into(), date(r.due)),
+                    ("non_financial_revenue".into(), Val::Bool(r.non_financial_revenue)),
+                    ("contingent".into(), Val::Bool(r.contingent)),
+                    ("performing".into(), uncertain(&r.performing, &r.id, "performing")),
                 ],
             },
         );
@@ -124,10 +181,25 @@ pub struct Run {
 }
 
 pub fn run(loans: &[Loan], reporting_date: NaiveDate, mode: Mode) -> Result<Run, String> {
-    let world = load(loans);
-    let it = Interp::new(module(), &world, Options { mode, sense: None, params: vec![("reporting_date".into(), date(reporting_date))] })?;
-    let mut inflows: BTreeMap<String, Q> =
-        ["20.1", "20.2", "20.3", "20.4", "20.5", "20.6"].iter().map(|i| (i.to_string(), Q::default())).collect();
+    run_all(loans, &Other::default(), reporting_date, mode)
+}
+
+/// Loans plus other contractual inflows (21.4) and head office support (21.5).
+pub fn run_all(loans: &[Loan], other: &Other, reporting_date: NaiveDate, mode: Mode) -> Result<Run, String> {
+    let world = load_all(loans, other);
+    let ho = &other.head_office;
+    let params = vec![
+        ("reporting_date".into(), date(reporting_date)),
+        ("foreign_adi".into(), Val::Bool(ho.foreign_adi)),
+        ("local_banking_subsidiary".into(), Val::Bool(ho.local_banking_subsidiary)),
+        ("head_office_approved".into(), Val::Bool(ho.approved)),
+        ("head_office_facility".into(), Val::Num(ho.facility.clone())),
+    ];
+    let it = Interp::new(module(), &world, Options { mode, sense: None, params })?;
+    let mut inflows: BTreeMap<String, Q> = ["20.1", "20.2", "20.3", "20.4", "20.5", "20.6", "20.7", "20.8", "20.9", "21.4", "21.5"]
+        .iter()
+        .map(|i| (i.to_string(), Q::default()))
+        .collect();
     let mut parts = Vec::new();
     for (k, l) in loans.iter().enumerate() {
         for (item, total) in inflows.iter_mut() {
@@ -141,6 +213,24 @@ pub fn run(loans: &[Loan], reporting_date: NaiveDate, mode: Mode) -> Result<Run,
                 other => return Err(format!("inflow: {other:?}")),
             }
         }
+    }
+    for (k, r) in other.receivables.iter().enumerate() {
+        match it.call_fn("other_inflow", vec![Val::Rec("Receivable".into(), k), Val::Str("21.4".into())])? {
+            Val::Num(q) if q != Q::default() => {
+                parts.push((r.id.clone(), "21.4".into(), q.clone()));
+                *inflows.get_mut("21.4").unwrap() += q;
+            }
+            Val::Num(_) => {}
+            other => return Err(format!("other_inflow: {other:?}")),
+        }
+    }
+    match it.call_fn("head_office_support", vec![])? {
+        Val::Num(q) if q != Q::default() => {
+            parts.push(("head-office".into(), "21.5".into(), q.clone()));
+            inflows.insert("21.5".into(), q);
+        }
+        Val::Num(_) => {}
+        other => return Err(format!("head_office_support: {other:?}")),
     }
     let out = it.run()?;
     let mut rsf: BTreeMap<(String, String), Q> = BTreeMap::new();

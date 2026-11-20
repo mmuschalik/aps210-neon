@@ -19,6 +19,7 @@ fn loan(id: &str, contract: Contract, balance: i64) -> Loan {
     Loan {
         id: id.into(),
         borrower: Borrower::RetailCustomer,
+        affiliation: Affiliation::External,
         product: Product::ResidentialMortgage,
         contract,
         balance: aud(balance),
@@ -185,6 +186,7 @@ fn conservation_and_prudence() {
                 Loan {
                     id: format!("l{i}"),
                     borrower: [Borrower::RetailCustomer, Borrower::Sme, Borrower::FinancialInstitution][next(3) as usize],
+                    affiliation: Affiliation::External,
                     product: if next(2) == 0 { Product::ResidentialMortgage } else { Product::OtherLoan },
                     contract,
                     balance,
@@ -222,5 +224,69 @@ fn conservation_and_prudence() {
 fn module_proof_obligations_hold() {
     for o in prudence_core::syntax::prove::prove_module(module()).unwrap() {
         assert!(o.proven, "{} NOT proven", o.obligation);
+    }
+}
+
+/// Intra-group inflows are "of which" rows: reported in their counterparty
+/// row and again in 20.7-20.9, but counted once in the totals.
+#[test]
+fn intra_group_of_which_rows() {
+    let mut bank = loan("sub-bank", Contract::Pam { maturity: rd() + Days::new(10) }, 1_000_000);
+    bank.borrower = Borrower::FinancialInstitution;
+    bank.affiliation = Affiliation::IntraGroupBank;
+    bank.next_payment = rd() + Days::new(10);
+    bank.cycle_months = 12;
+    let mut other = bank.clone();
+    other.id = "sub-corp".into();
+    other.borrower = Borrower::NonFinancialCorporate;
+    other.affiliation = Affiliation::IntraGroupOther;
+    let r = run(&[bank, other], rd(), Mode::Conservative).unwrap();
+    assert_eq!(r.inflows["20.7"], r.inflows["20.5"]);
+    assert_eq!(r.inflows["20.9"], r.inflows["20.3"]);
+    assert_eq!(r.inflows["20.8"], Q::default());
+    let (lcr, _) = arf_inputs(&r);
+    let ev = evaluate(arf210::lcr_all(), lcr.iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).unwrap();
+    assert_eq!(ev.q("20"), &(ev.q("20.5") + ev.q("20.3")), "of which rows are not added again");
+    assert!(ev.findings.iter().all(|f| !f.check_id.starts_with("20.7")), "{:?}", ev.findings);
+}
+
+/// Item 21.4: only contractual, non-contingent financial receivables due
+/// within 30 days. Item 21.5: the head office facility, only for an approved
+/// foreign ADI without a local banking subsidiary, capped by the form at 20%
+/// of total outflows.
+#[test]
+fn other_contractual_inflows_and_head_office_support() {
+    let rec = |id: &str, days: u64| Receivable {
+        id: id.into(),
+        amount: aud(1_000_000),
+        due: rd() + Days::new(days),
+        non_financial_revenue: false,
+        contingent: false,
+        performing: Uncertain::Known(true),
+    };
+    let mut rent = rec("rent", 10);
+    rent.non_financial_revenue = true;
+    let mut guarantee = rec("called-guarantee", 10);
+    guarantee.contingent = true;
+    let mut unknown = rec("doubtful", 10);
+    unknown.performing = Uncertain::unknown("no arrears data");
+    let other = Other {
+        receivables: vec![rec("settlement", 2), rec("later", 45), rent, guarantee, unknown],
+        head_office: HeadOffice { foreign_adi: true, local_banking_subsidiary: false, approved: true, facility: aud(500_000_000) },
+    };
+    let r = run_all(&[], &other, rd(), Mode::Conservative).unwrap();
+    assert_eq!(r.inflows["21.4"], aud(1_000_000));
+    assert_eq!(r.inflows["21.5"], aud(500_000_000));
+    let (mut lcr, _) = arf_inputs(&r);
+    lcr.insert("10.1".into(), Q::from_integer(1000.into())); // 1,000m outflows at 100%
+    let ev = evaluate(arf210::lcr_all(), lcr.iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).unwrap();
+    assert_eq!(ev.q("21.5:weighted"), &Q::from_integer(200.into())); // 20% of 1,000m
+    // Not approved, or part of a group with a local banking subsidiary: nothing.
+    for ho in [
+        HeadOffice { approved: false, ..other.head_office.clone() },
+        HeadOffice { local_banking_subsidiary: true, ..other.head_office.clone() },
+    ] {
+        let r = run_all(&[], &Other { head_office: ho, ..other.clone() }, rd(), Mode::Conservative).unwrap();
+        assert_eq!(r.inflows["21.5"], Q::default());
     }
 }
