@@ -1,0 +1,12 @@
+[package]
+name = "loans"
+version = "0.1.0"
+description = "Loans: LCR inflows (item 20) and NSFR required stable funding (ACTUS ANN/LAM/PAM/UMP)"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prudence-core = { path = "../prudence-core" }
+arf210 = { path = "../arf210" }
+chrono = { version = "0.4", default-features = false, features = ["std"] }

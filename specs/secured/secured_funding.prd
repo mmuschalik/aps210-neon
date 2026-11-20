@@ -129,6 +129,16 @@ module SecuredFunding(jurisdiction: AU_APRA) {
   // Everything a holding reports in Section A.
   fn section_a(h: Holding, i: String) -> Money<AUD, MarketValue> = stock(h, i) + clf(h, i)
 
+  // Item 21.3: unencumbered securities outside the HQLA stock and the CLF
+  // that mature within 30 days flow in at 100%.
+  fn securities_inflow(h: Holding, i: String) -> Money<AUD, MarketValue> =
+    if i == "21.3" && !h.encumbered && stock_row(h) == "none" && clf_row(h) == "none"
+       && h.maturity <= reporting_date + 30.days
+    then h.market_value else 0.AUD                                      @cite("Att A para 65; APG 210 para 105")
+
+  // Everything a holding reports on ARF 210.1A.
+  fn holding_items(h: Holding, i: String) -> Money<AUD, MarketValue> = section_a(h, i) + securities_inflow(h, i)
+
   // ---------------------------------------------------------------- facts about a transaction
 
   fn maturing(r: Repo) -> Bool =

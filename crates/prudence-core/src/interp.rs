@@ -496,6 +496,7 @@ impl<'a> Interp<'a> {
                     (Div, Val::Num(_), Val::Num(y)) if y.is_zero() => Err("division by zero".into()),
                     (Div, Val::Num(x), Val::Num(y)) => Ok(Val::Num(x / y)),
                     (Add, Val::Date(d), Val::Days(n)) => Ok(Val::Date(d + n)),
+                    (Sub, Val::Date(d), Val::Days(n)) => Ok(Val::Date(d - n)),
                     (Eq, ..) => Ok(Val::Bool(self.same(&l, &r))),
                     (Ne, ..) => Ok(Val::Bool(!self.same(&l, &r))),
                     (In, _, Val::List(xs)) => Ok(Val::Bool(xs.iter().any(|x| self.same(&l, x)))),
@@ -656,6 +657,35 @@ impl<'a> Interp<'a> {
                 [Val::Str(p), Val::Num(n)] => Ok(Val::Str(format!("{p}.{n}"))),
                 other => Err(at(format!("item(String, Int), got {other:?}"))),
             },
+            "cycle" => match self.args_named(args, scope)?.0.as_slice() {
+                [Val::Date(start), Val::Num(m), Val::Date(upto)] => {
+                    let m = u32::try_from(m.to_integer()).map_err(|e| at(e.to_string()))?;
+                    if m == 0 {
+                        return Err(at("cycle of 0 months".into()));
+                    }
+                    let mut ks = Vec::new();
+                    let mut k: u32 = 0;
+                    while add_months(*start, k * m) <= *upto {
+                        ks.push(Val::num(i64::from(k)));
+                        k += 1;
+                    }
+                    Ok(Val::List(ks))
+                }
+                other => Err(at(format!("cycle(Date, Int, Date), got {other:?}"))),
+            },
+            "add_months" => match self.args_named(args, scope)?.0.as_slice() {
+                [Val::Date(d), Val::Num(m)] => {
+                    Ok(Val::Date(add_months(*d, u32::try_from(m.to_integer()).map_err(|e| at(e.to_string()))?)))
+                }
+                other => Err(at(format!("add_months(Date, Int), got {other:?}"))),
+            },
+            "pow" => match self.args_named(args, scope)?.0.as_slice() {
+                [Val::Num(x), Val::Num(k)] if k.is_integer() => {
+                    let k = i32::try_from(k.to_integer()).map_err(|e| at(e.to_string()))?;
+                    Ok(Val::Num(num_traits::Pow::pow(x, k)))
+                }
+                other => Err(at(format!("pow(Num, Int), got {other:?}"))),
+            },
             "bucket" => match self.args_named(args, scope)?.0.as_slice() {
                 [Val::Date(d)] => {
                     let Val::Date(rd) = self.param("reporting_date")?.clone() else { return Err("reporting_date".into()) };
@@ -672,6 +702,11 @@ impl<'a> Interp<'a> {
             },
             "min" | "max" => {
                 let vals = if args.len() == 1 { self.elements(args, scope)? } else { self.args_named(args, scope)?.0 };
+                if !vals.is_empty() && vals.iter().all(|v| matches!(v, Val::Date(_))) {
+                    let ds = vals.iter().map(|v| if let Val::Date(d) = v { *d } else { unreachable!() });
+                    let pick = if name == "min" { ds.min() } else { ds.max() };
+                    return Ok(Val::Date(pick.unwrap()));
+                }
                 let nums = vals.iter().map(num).collect::<R<Vec<_>>>()?;
                 let pick = if name == "min" { nums.into_iter().min() } else { nums.into_iter().max() };
                 pick.map(Val::Num).ok_or_else(|| at(format!("{name} of nothing")))

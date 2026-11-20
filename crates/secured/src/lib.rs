@@ -207,13 +207,14 @@ pub fn load(holdings: &[Holding], repos: &[Repo]) -> World {
 }
 
 /// ARF 210.1A Section A items a holding can report into: the stock
-/// (1.1-3.3) and the CLF (6.1.1-6.1.6, 6.4).
+/// (1.1-3.3), the CLF (6.1.1-6.1.6, 6.4), and maturing securities (21.3).
 pub fn stock_items() -> Vec<&'static str> {
     input_items(|id| {
         (["1.", "2.", "3."].iter().any(|p| id.starts_with(p))
             && !["1.5", "2.5", "3.4", "3.5"].iter().any(|p| id.starts_with(p)))
             || id.starts_with("6.1.")
             || id == "6.4"
+            || id == "21.3"
     })
 }
 
@@ -259,7 +260,7 @@ pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode
     for (n, _) in holdings.iter().enumerate() {
         let h = Val::Rec("Holding".into(), n);
         for (item, total) in stock.iter_mut() {
-            *total += num(it.call_fn("section_a", vec![h.clone(), Val::Str(item.clone())])?)?;
+            *total += num(it.call_fn("holding_items", vec![h.clone(), Val::Str(item.clone())])?)?;
         }
     }
     let mut unwind: BTreeMap<HqlaClass, Q> = HqlaClass::ALL.iter().map(|k| (*k, Q::default())).collect();

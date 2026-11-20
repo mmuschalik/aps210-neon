@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::ast::*;
 
-const BUILTIN_VALUES: [&str; 19] = [
-    "conservative", "known", "latest", "days", "bucket", "item", "min", "max", "sum", "all", "distinct", "events",
+const BUILTIN_VALUES: [&str; 22] = [
+    "conservative", "known", "latest", "days", "bucket", "cycle", "add_months", "pow", "item", "min", "max", "sum", "all", "distinct", "events",
     "slices", "solo", "true", "false", "none", "Conservative", "Optimistic",
 ];
 const BUILTIN_TYPES: [&str; 18] = [

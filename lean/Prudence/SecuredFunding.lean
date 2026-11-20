@@ -173,6 +173,12 @@ def clf (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
 def section_a (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
   ((stock W m h i) + (clf W m h i))
 
+def securities_inflow (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
+  (if (((((i == "21.3") && (!h.encumbered)) && ((stock_row W m h) == "none")) && ((clf_row W m h) == "none")) && (pcmp (· ≤ ·) h.maturity (W.reporting_date + (30 : Int)))) then h.market_value else (0 : Int))
+
+def holding_items (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
+  ((section_a W m h i) + (securities_inflow W m h i))
+
 def maturing (W : World) (m : Mode) (r : Repo) : Bool :=
   (match r.contract with
     | .REP maturity => (pcmp (· ≤ ·) (maturity - W.reporting_date) (30 : Int)))

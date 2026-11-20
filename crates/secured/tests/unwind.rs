@@ -246,8 +246,10 @@ fn clf_from_raw_holdings_and_repos() {
     assert_eq!(ev.q("6.3"), &m(140)); // min(300, 140)
     assert_eq!(ev.q("6.4"), &m(110));
     assert_eq!(ev.q("21.2"), &m(110)); // min(6.4, 6.1 - 6.3 = 160)
-    // Without a CLF the same securities are not liquid assets at all.
+    // Without a CLF the same securities are not liquid assets at all; the
+    // one maturing within 30 days is an ordinary contractual inflow (21.3).
     let r = run(&[adi, abs], &[repo], rd(), Mode::Conservative, false).unwrap();
     assert!(["6.1.3", "6.1.6", "6.4", "11.5"].iter().all(|i| r.items[*i] == Q::default()));
+    assert_eq!(r.items["21.3"], Q::from_u64(120_000_000).unwrap());
     assert_eq!(r.items["11.6.2"], Q::from_u64(50_000_000).unwrap());
 }

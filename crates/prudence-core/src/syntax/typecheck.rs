@@ -788,7 +788,7 @@ impl<'m> Checker<'m> {
                 }
                 (Div, Ty::Money(..), t) if t.is_numeric() => ta.clone(),
                 (Div, Ty::Money(..), Ty::Money(..)) => Ty::Rate,
-                (Add, Ty::Date, Ty::Days) => Ty::Date,
+                (Add | Sub, Ty::Date, Ty::Days) => Ty::Date,
                 (_, x, y) if x.is_numeric() && y.is_numeric() => self.join(x, y).unwrap_or(Ty::Num),
                 _ => {
                     self.err(at, format!("cannot apply {op:?} to {} and {}", ta.name(), tb.name()));
@@ -871,6 +871,33 @@ impl<'m> Checker<'m> {
                     self.expect(&Ty::Date, &t, first_pos(&a.value), "days(..)");
                 }
                 Ty::Int
+            }
+            // ACTUS cycle: the payment numbers k = 0, 1, .. whose dates
+            // add_months(start, k * months) fall on or before `upto`.
+            "cycle" => {
+                for (a, want) in args.iter().zip([Ty::Date, Ty::Int, Ty::Date]) {
+                    let t = self.expr(&a.value);
+                    self.expect(&want, &t, first_pos(&a.value), "cycle(start: Date, months: Int, upto: Date)");
+                }
+                Ty::List(Box::new(Ty::Int))
+            }
+            "add_months" => {
+                for (a, want) in args.iter().zip([Ty::Date, Ty::Int]) {
+                    let t = self.expr(&a.value);
+                    self.expect(&want, &t, first_pos(&a.value), "add_months(Date, Int)");
+                }
+                Ty::Date
+            }
+            "pow" => {
+                let t = args.first().map(|a| self.expr(&a.value)).unwrap_or(Ty::Unknown);
+                if let Some(k) = args.get(1) {
+                    let kt = self.expr(&k.value);
+                    self.expect(&Ty::Int, &kt, first_pos(&k.value), "pow(x, k: Int)");
+                }
+                if !(t.is_numeric() || matches!(t, Ty::Unknown)) {
+                    self.err(at, format!("pow of {}", t.name()));
+                }
+                t
             }
             "bucket" => {
                 for a in args {
