@@ -1,0 +1,98 @@
+// Prudence source: off-balance sheet outflows - committed facilities,
+// contractual obligations to extend funds, and contingent funding obligations.
+
+@standard("APS 210", version: "2025-07-01", clause: "Att A paras 51-53; Table 3 (committed facilities, other contingent funding obligations)")
+@reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 14, 15, 16")
+module Commitments(jurisdiction: AU_APRA) {
+
+  param reporting_date : Date
+
+  type Counterparty = RetailCustomer | Sme | NonFinancialCorporate | SovereignCentralBankPseMdb
+                    | RegulatedBank | OtherFinancialInstitution | OtherLegalEntity
+  type FacilityKind = CreditFacility | LiquidityFacility
+  type ObligationKind = TradeFinance | Guarantee | ShortTermDebtBuyback | LongTermDebtBuyback
+                      | AffiliatedDealerBuyback | StructuredProductsAndFunds | OtherNonContractual | OtherContractual
+
+  // An undrawn credit or liquidity facility extended by the ADI.
+  data Facility {
+    counterparty : Counterparty
+    kind         : FacilityKind                     @cite("Att A para 51: liquidity vs credit facilities")
+    committed    : Bool                             // irrevocable or only conditionally revocable
+    undrawn      : Money<AUD, Carrying>
+    // Some of the undrawn amount can contractually be drawn within 30 days.
+    //                                                  Conservative: true
+    drawable_within_30_days : Uncertain<Bool>       @cite("ARS p.52")
+    // Residential mortgage redraw: reported as committed, whether or not it is.
+    mortgage_redraw : Bool                          @cite("ARS p.52")
+    // To a hedge fund, money market fund, special purpose funding vehicle or a
+    // vehicle financing the ADI's own assets: a liquidity facility to a financial
+    // institution in its entirety.
+    funds_vehicle : Bool                            @cite("Att A para 52")
+  }
+
+  // A contractual obligation to extend funds within 30 days, not elsewhere.
+  data LendingCommitment {
+    counterparty : Counterparty
+    amount       : Money<AUD, Carrying>
+  }
+
+  // Other contingent funding obligations. Trade finance and guarantees:
+  // average monthly net outflow over the last 12 months; buybacks: debt
+  // outstanding with more than 30 days to maturity.
+  data ContingentObligation {
+    kind   : ObligationKind
+    amount : Money<AUD, Carrying>                   @cite("Att A Table 3; ARS pp. 53-54")
+  }
+
+  // ---------------------------------------------------------------- facilities
+
+  fn facility_row(f: Facility) -> String =
+    if !conservative(f.drawable_within_30_days, worst: true) then "none"      @cite("ARS p.52")
+    else if !(f.committed || f.mortgage_redraw) then "16.1"
+    else if f.funds_vehicle then "14.6.2"                                      @cite("Att A para 52")
+    else match f.counterparty {
+      RetailCustomer             => "14.1.1"
+      Sme                        => "14.2.1"
+      NonFinancialCorporate      => if f.kind == CreditFacility then "14.3.1" else "14.3.2"
+      SovereignCentralBankPseMdb => if f.kind == CreditFacility then "14.4.1" else "14.4.2"
+      RegulatedBank              => "14.5.1"
+      OtherFinancialInstitution  => if f.kind == CreditFacility then "14.6.1" else "14.6.2"
+      OtherLegalEntity           => "14.7.1"
+    }                                                                          @cite("Att A Table 3; ARS p.52")
+
+  fn facility(f: Facility, i: String) -> Money<AUD, Carrying> =
+    if i == facility_row(f) then f.undrawn else 0.AUD
+
+  // ---------------------------------------------------------------- obligations to extend funds
+
+  fn commitment_row(c: LendingCommitment) -> String =
+    match c.counterparty {
+      RegulatedBank              => "15.1"
+      OtherFinancialInstitution  => "15.1"
+      RetailCustomer             => "15.2"
+      Sme                        => "15.3"
+      NonFinancialCorporate      => "15.4"
+      SovereignCentralBankPseMdb => "15.5"
+      OtherLegalEntity           => "15.5"
+    }                                                                          @cite("ARS p.53")
+
+  fn commitment(c: LendingCommitment, i: String) -> Money<AUD, Carrying> =
+    if i == commitment_row(c) then c.amount else 0.AUD
+
+  // ---------------------------------------------------------------- contingent funding obligations
+
+  fn obligation_row(o: ContingentObligation) -> String =
+    match o.kind {
+      TradeFinance               => "16.2"
+      Guarantee                  => "16.3"
+      ShortTermDebtBuyback       => "16.4"
+      LongTermDebtBuyback        => "16.5"
+      AffiliatedDealerBuyback    => "16.6"
+      StructuredProductsAndFunds => "16.7"
+      OtherNonContractual        => "16.8"
+      OtherContractual           => "16.9"
+    }                                                                          @cite("Att A Table 3; ARS pp. 53-55")
+
+  fn obligation(o: ContingentObligation, i: String) -> Money<AUD, Carrying> =
+    if i == obligation_row(o) then o.amount else 0.AUD
+}

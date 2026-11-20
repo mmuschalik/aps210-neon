@@ -1,0 +1,12 @@
+[package]
+name = "obligations"
+version = "0.1.0"
+description = "Committed facilities, obligations to extend funds and contingent funding obligations (ARF 210.1A items 14-16)"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prudence-core = { path = "../prudence-core" }
+arf210 = { path = "../arf210" }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
