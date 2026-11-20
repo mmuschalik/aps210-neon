@@ -17,14 +17,18 @@ module SecuredFunding(jurisdiction: AU_APRA) {
 
   param reporting_date : Date
   param known_at       : Date = reporting_date
+  // The ADI has a committed liquidity facility with the RBA approved for the LCR.
+  param has_clf        : Bool = false                  @cite("Att A paras 13-20")
 
-  type HqlaClass = HQLA1 | HQLA2A | RmbsHqla2B | NonRmbsHqla2B | NonHqla
+  type HqlaClass = HQLA1 | HQLA2A | RmbsHqla2B | NonRmbsHqla2B | ClfEligible | NonHqla
   type Leg = Funding | Lending
   type Counterparty = OffshoreCentralBank | DomesticSovereignOrPse | OtherCounterparty
   type AssetKind = NotesAndCoin | RbaBalance | ForeignCentralBankBalance | DebtSecurity | CoveredBond | Rmbs | Equity
   type Issuer = AustralianGovernment | StateCentralBorrowingAuthority | ForeignSovereign | GuaranteedByAustralianGovernment
               | GuaranteedByForeignSovereign | CentralBank | PublicSectorEntity | Supranational
               | NonFinancialCorporateIssuer | FinancialInstitutionIssuer
+  type ClfCategory = SupranationalOrForeignGovernment | Guaranteed | AdiIssued | AssetBacked | OtherPrivate
+                  | SelfSecuritised | NotClfEligible
 
   // A holding in the stock of liquid assets (Section A).
   data Holding {
@@ -39,6 +43,12 @@ module SecuredFunding(jurisdiction: AU_APRA) {
     // associated entity.
     own_or_associated : Bool                         @cite("Att A paras 10(b), 12(a)")
     encumbered        : Bool                         // pledged, e.g. as repo collateral (Att A para 23)
+    // Central bank balances: can be drawn down in times of stress.
+    drawable_in_stress : Uncertain<Bool>            @cite("Att A para 9(b); ARS p.41")
+    // CLF: RBA repo-eligible category, and value after the RBA margin.
+    clf_category      : ClfCategory                  @cite("ARS items 6.1.1-6.1.6")
+    value_after_rba_margin : Money<AUD, MarketValue>
+    maturity          : Option<Date>
     operational       : Uncertain<Bool>              @cite("Att A paras 22-25")
   }
 
@@ -65,8 +75,8 @@ module SecuredFunding(jurisdiction: AU_APRA) {
     if h.encumbered || !conservative(h.operational, worst: false) then "none"     @cite("Att A paras 22-25")
     else match h.kind {
       NotesAndCoin              => "1.1"
-      RbaBalance                => "1.2.1"
-      ForeignCentralBankBalance => "1.2.2"
+      RbaBalance                => if conservative(h.drawable_in_stress, worst: false) then "1.2.1" else "none"
+      ForeignCentralBankBalance => if conservative(h.drawable_in_stress, worst: false) then "1.2.2" else "none"
       DebtSecurity =>
         if h.risk_weight == 0 then match h.issuer {
           AustralianGovernment             => "1.3.1"
@@ -95,6 +105,30 @@ module SecuredFunding(jurisdiction: AU_APRA) {
   fn stock(h: Holding, i: String) -> Money<AUD, MarketValue> =
     if i == stock_row(h) then h.market_value else 0.AUD
 
+  // ---------------------------------------------------------------- the CLF (alternative liquid assets)
+
+  // RBA repo-eligible securities that are not HQLA, held for the CLF.
+  fn clf_row(h: Holding) -> String =
+    if !has_clf || h.encumbered || !conservative(h.operational, worst: false) || stock_row(h) != "none" then "none"
+    else match h.clf_category {
+      SupranationalOrForeignGovernment => "6.1.1"
+      Guaranteed                       => "6.1.2"
+      AdiIssued                        => "6.1.3"
+      AssetBacked                      => "6.1.4"
+      OtherPrivate                     => "6.1.5"
+      SelfSecuritised                  => "6.1.6"
+      NotClfEligible                   => "none"
+    }                                                                   @cite("Att A paras 15-16; ARS pp. 43-44")
+
+  fn clf(h: Holding, i: String) -> Money<AUD, MarketValue> =
+    (if i == clf_row(h) then h.value_after_rba_margin else 0.AUD)
+    // Item 6.4: CLF securities maturing within 30 days (not counted again as inflows).
+    + (if i == "6.4" && clf_row(h) != "none" && h.maturity <= reporting_date + 30.days
+       then h.value_after_rba_margin else 0.AUD)                       @cite("APG 210 para 105; ARS p.44")
+
+  // Everything a holding reports in Section A.
+  fn section_a(h: Holding, i: String) -> Money<AUD, MarketValue> = stock(h, i) + clf(h, i)
+
   // ---------------------------------------------------------------- facts about a transaction
 
   fn maturing(r: Repo) -> Bool =
@@ -105,7 +139,7 @@ module SecuredFunding(jurisdiction: AU_APRA) {
   // The collateral would count in the HQLA stock: an HQLA class, operational,
   // and (for received collateral) not re-used.
   fn qualifies(r: Repo) -> Bool =
-    r.collateral_class != NonHqla
+    r.collateral_class in [HQLA1, HQLA2A, RmbsHqla2B, NonRmbsHqla2B]
     && conservative(r.operational, worst: false)
     && !(r.leg == Lending && r.rehypothecated)                          @cite("Att A para 8; ARS items 11.x.1, 19.1.x.1")
 
@@ -136,6 +170,8 @@ module SecuredFunding(jurisdiction: AU_APRA) {
           HQLA2A        => "11.2"
           RmbsHqla2B    => "11.3"
           NonRmbsHqla2B => "11.4"
+          ClfEligible   => if has_clf then "11.5"
+                           else if r.counterparty == DomesticSovereignOrPse then "11.6.1" else "11.6.2"
           NonHqla       => if r.counterparty == DomesticSovereignOrPse then "11.6.1" else "11.6.2"
         }
       }
@@ -144,6 +180,7 @@ module SecuredFunding(jurisdiction: AU_APRA) {
         HQLA2A        => if r.rehypothecated then "19.2.2" else "19.1.2"
         RmbsHqla2B    => if r.rehypothecated then "19.2.3" else "19.1.3"
         NonRmbsHqla2B => if r.rehypothecated then "19.2.4" else "19.1.4"
+        ClfEligible   => if r.rehypothecated then "19.2.6" else if has_clf then "19.1.5" else "19.1.8"
         NonHqla       => if r.rehypothecated then "19.2.6" else "19.1.8"
       }
     }                                                                   @cite("ARS 210.0 pp. 48-50, 57-58")
@@ -152,6 +189,7 @@ module SecuredFunding(jurisdiction: AU_APRA) {
   fn of_which_row(r: Repo) -> String =
     match (r.leg, r.counterparty, r.collateral_class) {
       (_, _, NonHqla)                                => "none"
+      (_, _, ClfEligible)                            => "none"
       // Item 11.7 (offshore central banks) exists for funding only.
       (Funding, OffshoreCentralBank, HQLA1)          => "11.7.1"
       (Funding, OffshoreCentralBank, HQLA2A)         => "11.7.3"
@@ -164,6 +202,7 @@ module SecuredFunding(jurisdiction: AU_APRA) {
   fn collateral_row(r: Repo) -> String =
     match (r.leg, r.counterparty, r.collateral_class) {
       (_, _, NonHqla)                                => "none"
+      (_, _, ClfEligible)                            => "none"
       // Item 11.7 (offshore central banks) exists for funding only.
       (Funding, OffshoreCentralBank, HQLA1)          => "11.7.2"
       (Funding, OffshoreCentralBank, HQLA2A)         => "11.7.4"
@@ -172,6 +211,15 @@ module SecuredFunding(jurisdiction: AU_APRA) {
       _                                              => item(row(r), 2)
     }
 
+  // CLF securities extended or received in secured transactions with CLF
+  // capacity: items 11.5.1 / 19.1.5.1 (value after the RBA margin).
+  fn clf_collateral_row(r: Repo) -> String =
+    if r.collateral_class != ClfEligible || !has_clf || r.counterparty == OffshoreCentralBank then "none"
+    else match r.leg {
+      Funding => "11.5.1"
+      Lending => if r.rehypothecated then "none" else "19.1.5.1"
+    }                                                                   @cite("ARS pp. 49-50, 57")
+
   // What r reports in ARF 210.1A item `i` (column 1). Only transactions
   // maturing within 30 days are reported.
   fn contribution(r: Repo, i: String) -> Money<AUD, MarketValue> =
@@ -179,5 +227,6 @@ module SecuredFunding(jurisdiction: AU_APRA) {
     else (if i == row(r) then r.cash else 0.AUD)
        + (if qualifies(r) && i == of_which_row(r) then r.cash else 0.AUD)
        + (if qualifies(r) && i == collateral_row(r) then r.collateral_value else 0.AUD)
+       + (if i == clf_collateral_row(r) then r.collateral_value else 0.AUD)
                                                                         @cite("ARS 210.0 pp. 48-50, 57-58")
 }

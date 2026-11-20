@@ -16,7 +16,9 @@ def total (g : Repo → Int) : List Repo → Int
   | [] => 0
   | r :: rs => g r + total g rs
 
-/-- One transaction, every class: settle it and compare with the form. -/
+set_option maxHeartbeats 4000000 in
+/-- One transaction, every class: settle it and compare with the form.
+    (576 cases: legs x classes x counterparties x re-use x CLF x status.) -/
 theorem unwind_one (W : World) (m : Mode) (r : Repo) :
     unwind W m r .HQLA1 = arf_1_5_1 (contribution W m r)
       ∧ unwind W m r .HQLA2A = arf_2_5_1 (contribution W m r)
@@ -27,8 +29,8 @@ theorem unwind_one (W : World) (m : Mode) (r : Repo) :
   rcases r with ⟨leg, cash, cls, val, cp, op, rh, ct⟩
   simp only
   generalize resolve m op false (!false) = o
-  cases mt <;> cases leg <;> cases cls <;> cases cp <;> cases rh <;> cases o <;>
-    simp [row, of_which_row, collateral_row] <;> omega
+  cases mt <;> cases leg <;> cases cls <;> cases cp <;> cases rh <;> cases o <;> cases hc : W.has_clf <;>
+    simp [row, of_which_row, collateral_row, clf_collateral_row, hc] <;> omega
 
 /-- A sum of per-transaction values through a linear form is the linear form
     of the summed items. -/

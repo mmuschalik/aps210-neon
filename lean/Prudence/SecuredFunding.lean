@@ -54,6 +54,16 @@ inductive AssetKind where
   | Equity
   deriving DecidableEq, Repr, Inhabited
 
+inductive ClfCategory where
+  | SupranationalOrForeignGovernment
+  | Guaranteed
+  | AdiIssued
+  | AssetBacked
+  | OtherPrivate
+  | SelfSecuritised
+  | NotClfEligible
+  deriving DecidableEq, Repr, Inhabited
+
 inductive Counterparty where
   | OffshoreCentralBank
   | DomesticSovereignOrPse
@@ -65,6 +75,7 @@ inductive HqlaClass where
   | HQLA2A
   | RmbsHqla2B
   | NonRmbsHqla2B
+  | ClfEligible
   | NonHqla
   deriving DecidableEq, Repr, Inhabited
 
@@ -96,6 +107,10 @@ structure Holding where
   index_constituent : Bool
   own_or_associated : Bool
   encumbered : Bool
+  drawable_in_stress : U (Bool)
+  clf_category : ClfCategory
+  value_after_rba_margin : Int
+  maturity : Option (Int)
   operational : U (Bool)
   deriving DecidableEq, Repr, Inhabited
 
@@ -118,12 +133,13 @@ structure Repo where
 structure World where
   reporting_date : Int
   known_at : Int
+  has_clf : Bool
 
 def stock_row (W : World) (m : Mode) (h : Holding) : String :=
   (if (h.encumbered || (!(resolve m h.operational false (!false)))) then "none" else (match h.kind with
     | .NotesAndCoin => "1.1"
-    | .RbaBalance => "1.2.1"
-    | .ForeignCentralBankBalance => "1.2.2"
+    | .RbaBalance => (if (resolve m h.drawable_in_stress false (!false)) then "1.2.1" else "none")
+    | .ForeignCentralBankBalance => (if (resolve m h.drawable_in_stress false (!false)) then "1.2.2" else "none")
     | .DebtSecurity => (if (h.risk_weight == (0 : Int)) then (match h.issuer with
     | .AustralianGovernment => "1.3.1"
     | .StateCentralBorrowingAuthority => "1.3.2"
@@ -141,12 +157,28 @@ def stock_row (W : World) (m : Mode) (h : Holding) : String :=
 def stock (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
   (if (i == (stock_row W m h)) then h.market_value else (0 : Int))
 
+def clf_row (W : World) (m : Mode) (h : Holding) : String :=
+  (if ((((!W.has_clf) || h.encumbered) || (!(resolve m h.operational false (!false)))) || ((stock_row W m h) != "none")) then "none" else (match h.clf_category with
+    | .SupranationalOrForeignGovernment => "6.1.1"
+    | .Guaranteed => "6.1.2"
+    | .AdiIssued => "6.1.3"
+    | .AssetBacked => "6.1.4"
+    | .OtherPrivate => "6.1.5"
+    | .SelfSecuritised => "6.1.6"
+    | .NotClfEligible => "none"))
+
+def clf (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
+  ((if (i == (clf_row W m h)) then h.value_after_rba_margin else (0 : Int)) + (if (((i == "6.4") && ((clf_row W m h) != "none")) && (pcmp (· ≤ ·) h.maturity (W.reporting_date + (30 : Int)))) then h.value_after_rba_margin else (0 : Int)))
+
+def section_a (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
+  ((stock W m h i) + (clf W m h i))
+
 def maturing (W : World) (m : Mode) (r : Repo) : Bool :=
   (match r.contract with
     | .REP maturity => (pcmp (· ≤ ·) (maturity - W.reporting_date) (30 : Int)))
 
 def qualifies (W : World) (m : Mode) (r : Repo) : Bool :=
-  (((r.collateral_class != HqlaClass.NonHqla) && (resolve m r.operational false (!false))) && (!((r.leg == Leg.Lending) && r.rehypothecated)))
+  (((List.contains [HqlaClass.HQLA1, HqlaClass.HQLA2A, HqlaClass.RmbsHqla2B, HqlaClass.NonRmbsHqla2B] r.collateral_class) && (resolve m r.operational false (!false))) && (!((r.leg == Leg.Lending) && r.rehypothecated)))
 
 def unwind (W : World) (m : Mode) (r : Repo) (k : HqlaClass) : Int :=
   (if (!((maturing W m r) && (qualifies W m r))) then (0 : Int) else (match r.leg with
@@ -162,17 +194,20 @@ def row (W : World) (m : Mode) (r : Repo) : String :=
     | .HQLA2A => "11.2"
     | .RmbsHqla2B => "11.3"
     | .NonRmbsHqla2B => "11.4"
+    | .ClfEligible => (if W.has_clf then "11.5" else (if (r.counterparty == Counterparty.DomesticSovereignOrPse) then "11.6.1" else "11.6.2"))
     | .NonHqla => (if (r.counterparty == Counterparty.DomesticSovereignOrPse) then "11.6.1" else "11.6.2")))
     | .Lending => (match r.collateral_class with
     | .HQLA1 => (if r.rehypothecated then "19.2.1" else "19.1.1")
     | .HQLA2A => (if r.rehypothecated then "19.2.2" else "19.1.2")
     | .RmbsHqla2B => (if r.rehypothecated then "19.2.3" else "19.1.3")
     | .NonRmbsHqla2B => (if r.rehypothecated then "19.2.4" else "19.1.4")
+    | .ClfEligible => (if r.rehypothecated then "19.2.6" else (if W.has_clf then "19.1.5" else "19.1.8"))
     | .NonHqla => (if r.rehypothecated then "19.2.6" else "19.1.8")))
 
 def of_which_row (W : World) (m : Mode) (r : Repo) : String :=
   (match (r.leg, r.counterparty, r.collateral_class) with
     | (_, _, .NonHqla) => "none"
+    | (_, _, .ClfEligible) => "none"
     | (.Funding, .OffshoreCentralBank, .HQLA1) => "11.7.1"
     | (.Funding, .OffshoreCentralBank, .HQLA2A) => "11.7.3"
     | (.Funding, .OffshoreCentralBank, .RmbsHqla2B) => "11.7.5"
@@ -182,14 +217,20 @@ def of_which_row (W : World) (m : Mode) (r : Repo) : String :=
 def collateral_row (W : World) (m : Mode) (r : Repo) : String :=
   (match (r.leg, r.counterparty, r.collateral_class) with
     | (_, _, .NonHqla) => "none"
+    | (_, _, .ClfEligible) => "none"
     | (.Funding, .OffshoreCentralBank, .HQLA1) => "11.7.2"
     | (.Funding, .OffshoreCentralBank, .HQLA2A) => "11.7.4"
     | (.Funding, .OffshoreCentralBank, .RmbsHqla2B) => "11.7.6"
     | (.Funding, .OffshoreCentralBank, .NonRmbsHqla2B) => "11.7.8"
     | _ => ((row W m r) ++ ".2"))
 
+def clf_collateral_row (W : World) (m : Mode) (r : Repo) : String :=
+  (if (((r.collateral_class != HqlaClass.ClfEligible) || (!W.has_clf)) || (r.counterparty == Counterparty.OffshoreCentralBank)) then "none" else (match r.leg with
+    | .Funding => "11.5.1"
+    | .Lending => (if r.rehypothecated then "none" else "19.1.5.1")))
+
 def contribution (W : World) (m : Mode) (r : Repo) (i : String) : Int :=
-  (if (!(maturing W m r)) then (0 : Int) else (((if (i == (row W m r)) then r.cash else (0 : Int)) + (if ((qualifies W m r) && (i == (of_which_row W m r))) then r.cash else (0 : Int))) + (if ((qualifies W m r) && (i == (collateral_row W m r))) then r.collateral_value else (0 : Int))))
+  (if (!(maturing W m r)) then (0 : Int) else ((((if (i == (row W m r)) then r.cash else (0 : Int)) + (if ((qualifies W m r) && (i == (of_which_row W m r))) then r.cash else (0 : Int))) + (if ((qualifies W m r) && (i == (collateral_row W m r))) then r.collateral_value else (0 : Int))) + (if (i == (clf_collateral_row W m r)) then r.collateral_value else (0 : Int))))
 
 -- ARF 210.1A adjustment formulas
 

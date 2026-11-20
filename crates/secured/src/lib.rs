@@ -31,17 +31,21 @@ pub enum HqlaClass {
     Hqla2a,
     RmbsHqla2b,
     NonRmbsHqla2b,
+    /// RBA repo-eligible, not HQLA (CLF collateral).
+    ClfEligible,
     NonHqla,
 }
 
 impl HqlaClass {
-    pub const ALL: [HqlaClass; 5] = [Self::Hqla1, Self::Hqla2a, Self::RmbsHqla2b, Self::NonRmbsHqla2b, Self::NonHqla];
+    pub const ALL: [HqlaClass; 6] =
+        [Self::Hqla1, Self::Hqla2a, Self::RmbsHqla2b, Self::NonRmbsHqla2b, Self::ClfEligible, Self::NonHqla];
     fn ctor(self) -> &'static str {
         match self {
             Self::Hqla1 => "HQLA1",
             Self::Hqla2a => "HQLA2A",
             Self::RmbsHqla2b => "RmbsHqla2B",
             Self::NonRmbsHqla2b => "NonRmbsHqla2B",
+            Self::ClfEligible => "ClfEligible",
             Self::NonHqla => "NonHqla",
         }
     }
@@ -87,6 +91,17 @@ pub enum Issuer {
     FinancialInstitutionIssuer,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClfCategory {
+    SupranationalOrForeignGovernment,
+    Guaranteed,
+    AdiIssued,
+    AssetBacked,
+    OtherPrivate,
+    SelfSecuritised,
+    NotClfEligible,
+}
+
 /// A holding in the stock of liquid assets.
 #[derive(Clone, Debug)]
 pub struct Holding {
@@ -101,6 +116,11 @@ pub struct Holding {
     pub own_or_associated: bool,
     pub encumbered: bool,
     pub operational: Uncertain<bool>,
+    /// Central bank balances: can be drawn down in a stress.
+    pub drawable_in_stress: Uncertain<bool>,
+    pub clf_category: ClfCategory,
+    pub value_after_rba_margin: Q,
+    pub maturity: Option<NaiveDate>,
 }
 
 /// ACTUS REP contract.
@@ -149,6 +169,10 @@ pub fn load(holdings: &[Holding], repos: &[Repo]) -> World {
                     ("own_or_associated".into(), Val::Bool(h.own_or_associated)),
                     ("encumbered".into(), Val::Bool(h.encumbered)),
                     ("operational".into(), uncertain(&h.operational, &h.id, "operational")),
+                    ("drawable_in_stress".into(), uncertain(&h.drawable_in_stress, &h.id, "drawable_in_stress")),
+                    ("clf_category".into(), ctor(format!("{:?}", h.clf_category))),
+                    ("value_after_rba_margin".into(), Val::Num(h.value_after_rba_margin.clone())),
+                    ("maturity".into(), h.maturity.map(date).unwrap_or(Val::None)),
                 ],
             },
         );
@@ -182,10 +206,15 @@ pub fn load(holdings: &[Holding], repos: &[Repo]) -> World {
     w
 }
 
-/// ARF 210.1A Section A stock items (1.1-3.3, input cells).
+/// ARF 210.1A Section A items a holding can report into: the stock
+/// (1.1-3.3) and the CLF (6.1.1-6.1.6, 6.4).
 pub fn stock_items() -> Vec<&'static str> {
-    input_items(|id| ["1.", "2.", "3."].iter().any(|p| id.starts_with(p)) && !id.starts_with("1.5") && !id.starts_with("2.5")
-        && !id.starts_with("3.4") && !id.starts_with("3.5"))
+    input_items(|id| {
+        (["1.", "2.", "3."].iter().any(|p| id.starts_with(p))
+            && !["1.5", "2.5", "3.4", "3.5"].iter().any(|p| id.starts_with(p)))
+            || id.starts_with("6.1.")
+            || id == "6.4"
+    })
 }
 
 /// The ARF 210.1A items a secured transaction can report into (items 11 and 19).
@@ -213,9 +242,13 @@ pub struct Run {
 }
 
 /// Run the module over holdings and secured transactions as at `reporting_date`.
-pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode: Mode) -> Result<Run, String> {
+pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode: Mode, has_clf: bool) -> Result<Run, String> {
     let world = load(holdings, repos);
-    let opts = Options { mode, sense: None, params: vec![("reporting_date".into(), date(reporting_date))] };
+    let opts = Options {
+        mode,
+        sense: None,
+        params: vec![("reporting_date".into(), date(reporting_date)), ("has_clf".into(), Val::Bool(has_clf))],
+    };
     let it = Interp::new(module(), &world, opts)?;
     let num = |v: Val| match v {
         Val::Num(q) => Ok(q),
@@ -226,7 +259,7 @@ pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode
     for (n, _) in holdings.iter().enumerate() {
         let h = Val::Rec("Holding".into(), n);
         for (item, total) in stock.iter_mut() {
-            *total += num(it.call_fn("stock", vec![h.clone(), Val::Str(item.clone())])?)?;
+            *total += num(it.call_fn("section_a", vec![h.clone(), Val::Str(item.clone())])?)?;
         }
     }
     let mut unwind: BTreeMap<HqlaClass, Q> = HqlaClass::ALL.iter().map(|k| (*k, Q::default())).collect();

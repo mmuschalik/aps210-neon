@@ -24,7 +24,7 @@ fn portfolio(seed: u64, n: usize) -> Vec<Repo> {
             id: format!("r{i}"),
             leg: if next(2) == 0 { Leg::Funding } else { Leg::Lending },
             cash: Q::from_u64(next(1_000_000)).unwrap(),
-            collateral_class: HqlaClass::ALL[next(5) as usize],
+            collateral_class: HqlaClass::ALL[next(6) as usize],
             collateral_value: Q::from_u64(next(1_200_000)).unwrap(),
             counterparty: [Counterparty::OffshoreCentralBank, Counterparty::DomesticSovereignOrPse, Counterparty::Other]
                 [next(3) as usize],
@@ -46,7 +46,7 @@ fn form_adjustments_equal_the_mechanical_unwind() {
     for seed in 0..60 {
         for mode in [Mode::Conservative, Mode::Optimistic] {
             let repos = portfolio(seed, 1 + (seed as usize % 9));
-            let run = run(&[], &repos, rd(), mode).unwrap();
+            let run = run(&[], &repos, rd(), mode, seed % 2 == 0).unwrap();
             let inputs = arf_inputs(&run);
             let ev = evaluate(arf210::lcr_all(), inputs.iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).unwrap();
             for (item, class) in [("1.5.1", HqlaClass::Hqla1), ("2.5.1", HqlaClass::Hqla2a), ("3.4.1", HqlaClass::RmbsHqla2b), ("3.5.1", HqlaClass::NonRmbsHqla2b)] {
@@ -71,7 +71,7 @@ fn a_maturing_repo_reports_and_unwinds() {
         rehypothecated: false,
         maturity: rd() + Days::new(10),
     };
-    let run = run(&[], std::slice::from_ref(&r), rd(), Mode::Conservative).unwrap();
+    let run = run(&[], std::slice::from_ref(&r), rd(), Mode::Conservative, false).unwrap();
     let m = |x: u64| Q::from_u64(x * 1_000_000).unwrap();
     assert_eq!(run.items["11.2"], m(50));
     assert_eq!(run.items["11.2.1"], m(50));
@@ -80,13 +80,13 @@ fn a_maturing_repo_reports_and_unwinds() {
     assert_eq!(run.unwind[&HqlaClass::Hqla2a], m(55));
     // Unknown operational status: conservatively the collateral does not qualify.
     let unknown = Repo { operational: Uncertain::unknown("no custody link"), ..r.clone() };
-    let run = secured::run(&[], &[unknown], rd(), Mode::Conservative).unwrap();
+    let run = secured::run(&[], &[unknown], rd(), Mode::Conservative, false).unwrap();
     assert_eq!(run.items["11.2.1"], Q::default());
     assert_eq!(run.unwind[&HqlaClass::Hqla1], Q::default());
     assert!(run.assumptions.contains_key(&("r".to_string(), "operational".to_string())));
     // Maturing after 30 days: not reported, not unwound.
     let later = Repo { maturity: rd() + Days::new(31), ..r };
-    let run = secured::run(&[], &[later], rd(), Mode::Conservative).unwrap();
+    let run = secured::run(&[], &[later], rd(), Mode::Conservative, false).unwrap();
     assert!(run.items.values().all(|v| *v == Q::default()));
 }
 
@@ -135,6 +135,10 @@ fn holding(id: &str, kind: AssetKind, issuer: Issuer, rw: i64, grade: i64, value
         own_or_associated: false,
         encumbered: false,
         operational: Uncertain::Known(true),
+        drawable_in_stress: Uncertain::Known(true),
+        clf_category: ClfCategory::NotClfEligible,
+        value_after_rba_margin: Q::from_u64(value_m * 1_000_000).unwrap(),
+        maturity: None,
     }
 }
 
@@ -167,7 +171,7 @@ fn lcr_numerator_from_raw_holdings_and_repos() {
         rehypothecated: false,
         maturity: rd() + Days::new(5),
     };
-    let r = run(&holdings, &[repo], rd(), Mode::Conservative).unwrap();
+    let r = run(&holdings, &[repo], rd(), Mode::Conservative, false).unwrap();
     let m = |x: u64| Q::from_u64(x).unwrap();
     let ev = evaluate(arf210::lcr_all(), arf_inputs(&r).iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).unwrap();
     assert_eq!(ev.q("1"), &m(110)); // notes 10 + ACGB 100 (pledged semi excluded)
@@ -189,4 +193,61 @@ fn lcr_numerator_from_raw_holdings_and_repos() {
     // The only finding: this slice does not yet split outflows by currency (18.x).
     let ids: Vec<&str> = ev.findings.iter().map(|f| f.check_id.as_str()).collect();
     assert_eq!(ids, ["18 ccy amount"]); // weighted balances: HQLA1 repos run off at 0%
+}
+
+/// Central bank balances count only if drawable in stress; unknown is
+/// conservatively not drawable.
+#[test]
+fn central_bank_balances_need_to_be_drawable() {
+    let mut fcb = holding("rbnz", AssetKind::ForeignCentralBankBalance, Issuer::CentralBank, 0, 1, 20);
+    let r = run(std::slice::from_ref(&fcb), &[], rd(), Mode::Conservative, false).unwrap();
+    assert_eq!(r.items["1.2.2"], Q::from_u64(20_000_000).unwrap());
+    fcb.drawable_in_stress = Uncertain::unknown("terms not captured");
+    let r = run(std::slice::from_ref(&fcb), &[], rd(), Mode::Conservative, false).unwrap();
+    assert_eq!(r.items["1.2.2"], Q::default());
+    let r = run(&[fcb], &[], rd(), Mode::Optimistic, false).unwrap();
+    assert_eq!(r.items["1.2.2"], Q::from_u64(20_000_000).unwrap());
+}
+
+/// The CLF: eligible non-HQLA securities after RBA margins (6.1.x), the
+/// approved size adjusted for secured funding with CLF collateral (6.2), the
+/// amount in the numerator (6.3), and maturing CLF securities (6.4, 21.2).
+#[test]
+fn clf_from_raw_holdings_and_repos() {
+    let m = |x: u64| Q::from_u64(x).unwrap();
+    let mut adi = holding("adi-bond", AssetKind::DebtSecurity, Issuer::FinancialInstitutionIssuer, 20, 1, 200);
+    adi.clf_category = ClfCategory::AdiIssued;
+    adi.value_after_rba_margin = Q::from_u64(190_000_000).unwrap();
+    let mut abs = holding("self-sec", AssetKind::DebtSecurity, Issuer::FinancialInstitutionIssuer, 20, 1, 120);
+    abs.clf_category = ClfCategory::SelfSecuritised;
+    abs.value_after_rba_margin = Q::from_u64(110_000_000).unwrap();
+    abs.maturity = Some(rd() + Days::new(20)); // matures within 30 days
+    // A repo raising 50m against CLF securities worth 60m after margin.
+    let repo = Repo {
+        id: "clf-repo".into(),
+        leg: Leg::Funding,
+        cash: Q::from_u64(50_000_000).unwrap(),
+        collateral_class: HqlaClass::ClfEligible,
+        collateral_value: Q::from_u64(60_000_000).unwrap(),
+        counterparty: Counterparty::Other,
+        operational: Uncertain::Known(true),
+        rehypothecated: false,
+        maturity: rd() + Days::new(7),
+    };
+    let r = run(&[adi.clone(), abs.clone()], std::slice::from_ref(&repo), rd(), Mode::Conservative, true).unwrap();
+    assert_eq!(r.unwind[&HqlaClass::Hqla1], Q::default(), "CLF repos are not part of the HQLA unwind");
+    let mut inputs = arf_inputs(&r);
+    inputs.insert("6.2.1".into(), m(200)); // approved CLF size
+    let ev = evaluate(arf210::lcr_all(), inputs.iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).unwrap();
+    assert_eq!(ev.q("6.1"), &m(300)); // 190 + 110 after margins
+    assert_eq!(ev.q("11.5"), &m(50));
+    assert_eq!(ev.q("6.2.2"), &m(60)); // CLF securities pledged under maturing secured funding
+    assert_eq!(ev.q("6.2"), &m(140)); // 200 - 60
+    assert_eq!(ev.q("6.3"), &m(140)); // min(300, 140)
+    assert_eq!(ev.q("6.4"), &m(110));
+    assert_eq!(ev.q("21.2"), &m(110)); // min(6.4, 6.1 - 6.3 = 160)
+    // Without a CLF the same securities are not liquid assets at all.
+    let r = run(&[adi, abs], &[repo], rd(), Mode::Conservative, false).unwrap();
+    assert!(["6.1.3", "6.1.6", "6.4", "11.5"].iter().all(|i| r.items[*i] == Q::default()));
+    assert_eq!(r.items["11.6.2"], Q::from_u64(50_000_000).unwrap());
 }
