@@ -116,6 +116,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "secured"
+version = "0.1.0"
+dependencies = [
+ "arf210",
+ "chrono",
+ "num-traits",
+ "prudence-core",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"

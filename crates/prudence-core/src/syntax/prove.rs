@@ -164,6 +164,7 @@ fn canon(e: &SExpr) -> String {
             format!("{}({})", canon(f), a.join(","))
         }
         SExpr::Annotated(x, _) => canon(x),
+        SExpr::Tuple(xs) => format!("({})", xs.iter().map(canon).collect::<Vec<_>>().join(", ")),
         other => format!("{other:?}"),
     }
 }

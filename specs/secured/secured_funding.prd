@@ -1,0 +1,123 @@
+// Prudence source: secured funding, secured lending and the 30-day unwind
+// (design.txt §4.A.4 "Declarative Counterfactual Transitions").
+//
+// Two views of the same maturing transactions:
+//   unwind(r, k)        - the financial physics: settle the transaction early,
+//                         cash goes back, collateral comes back (Att A para 8);
+//   contribution(r, i)  - APRA's bookkeeping: what r reports in ARF 210.1A
+//                         item i (Section B item 11, Section C item 19).
+// Theorem (proven in Lean on the generated model): for every portfolio, the
+// unwind equals the ARF 210.1A adjustment formulas (items 1.5.1, 2.5.1,
+// 3.4.1, 3.5.1) applied to the reported items.
+
+@standard("APS 210", version: "2025-07-01", clause: "Att A paras 6-8, 22-25; Table 3; Table 4")
+@reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 1.5-3.6, 11, 19")
+module SecuredFunding(jurisdiction: AU_APRA) {
+
+  param reporting_date : Date
+  param known_at       : Date = reporting_date
+
+  type HqlaClass = HQLA1 | HQLA2A | RmbsHqla2B | NonRmbsHqla2B | NonHqla
+  type Leg = Funding | Lending
+  type Counterparty = OffshoreCentralBank | DomesticSovereignOrPse | OtherCounterparty
+
+  // ACTUS REP (repurchase agreement): cash against collateral, unwound at maturity.
+  data Repo : Contract<REP(maturity: Date)> {
+    leg              : Leg                         // Funding: we received cash (repo); Lending: we extended it (reverse repo)
+    cash             : Money<AUD, MarketValue>
+    collateral_class : HqlaClass
+    collateral_value : Money<AUD, MarketValue>
+    counterparty     : Counterparty
+    // The collateral meets (or would meet, if held unencumbered) the HQLA
+    // operational requirements.                                  Conservative: false
+    operational      : Uncertain<Bool>              @cite("Att A paras 22-25")
+    // Received collateral re-used to cover short positions.
+    rehypothecated   : Bool                         @cite("Att A para 56")
+  }
+
+  // ---------------------------------------------------------------- facts about a transaction
+
+  fn maturing(r: Repo) -> Bool =
+    match r.contract {
+      REP(maturity) => days(reporting_date, maturity) <= 30
+    }                                                                   @cite("Att A para 8: up to and including 30 days")
+
+  // The collateral would count in the HQLA stock: an HQLA class, operational,
+  // and (for received collateral) not re-used.
+  fn qualifies(r: Repo) -> Bool =
+    r.collateral_class != NonHqla
+    && conservative(r.operational, worst: false)
+    && !(r.leg == Lending && r.rehypothecated)                          @cite("Att A para 8; ARS items 11.x.1, 19.1.x.1")
+
+  // ---------------------------------------------------------------- the financial physics
+
+  // Change in the stock of class k from unwinding r (zero unless r matures
+  // within 30 days and its collateral qualifies). Cash is HQLA1.
+  fn unwind(r: Repo, k: HqlaClass) -> Money<AUD, MarketValue> =
+    if !(maturing(r) && qualifies(r)) then 0.AUD
+    else match r.leg {
+      // Repo: return the cash, get the collateral back.
+      Funding => (if k == r.collateral_class then r.collateral_value else 0.AUD)
+                 - (if k == HQLA1 then r.cash else 0.AUD)
+      // Reverse repo: get the cash back, return the collateral.
+      Lending => (if k == HQLA1 then r.cash else 0.AUD)
+                 - (if k == r.collateral_class then r.collateral_value else 0.AUD)
+    }                                                                   @cite("Att A para 8")
+
+  // ---------------------------------------------------------------- APRA's bookkeeping
+
+  // Section B item 11 (secured funding) / Section C item 19 (secured lending).
+  fn row(r: Repo) -> String =
+    match r.leg {
+      Funding => match r.counterparty {
+        OffshoreCentralBank => "11.7"
+        _ => match r.collateral_class {
+          HQLA1         => "11.1"
+          HQLA2A        => "11.2"
+          RmbsHqla2B    => "11.3"
+          NonRmbsHqla2B => "11.4"
+          NonHqla       => if r.counterparty == DomesticSovereignOrPse then "11.6.1" else "11.6.2"
+        }
+      }
+      Lending => match r.collateral_class {
+        HQLA1         => if r.rehypothecated then "19.2.1" else "19.1.1"
+        HQLA2A        => if r.rehypothecated then "19.2.2" else "19.1.2"
+        RmbsHqla2B    => if r.rehypothecated then "19.2.3" else "19.1.3"
+        NonRmbsHqla2B => if r.rehypothecated then "19.2.4" else "19.1.4"
+        NonHqla       => if r.rehypothecated then "19.2.6" else "19.1.8"
+      }
+    }                                                                   @cite("ARS 210.0 pp. 48-50, 57-58")
+
+  // "of which: transactions involving eligible HQLA" (cash amount).
+  fn of_which_row(r: Repo) -> String =
+    match (r.leg, r.counterparty, r.collateral_class) {
+      (_, _, NonHqla)                                => "none"
+      // Item 11.7 (offshore central banks) exists for funding only.
+      (Funding, OffshoreCentralBank, HQLA1)          => "11.7.1"
+      (Funding, OffshoreCentralBank, HQLA2A)         => "11.7.3"
+      (Funding, OffshoreCentralBank, RmbsHqla2B)     => "11.7.5"
+      (Funding, OffshoreCentralBank, NonRmbsHqla2B)  => "11.7.7"
+      _                                              => item(row(r), 1)
+    }
+
+  // "market value of the collateral" for those transactions.
+  fn collateral_row(r: Repo) -> String =
+    match (r.leg, r.counterparty, r.collateral_class) {
+      (_, _, NonHqla)                                => "none"
+      // Item 11.7 (offshore central banks) exists for funding only.
+      (Funding, OffshoreCentralBank, HQLA1)          => "11.7.2"
+      (Funding, OffshoreCentralBank, HQLA2A)         => "11.7.4"
+      (Funding, OffshoreCentralBank, RmbsHqla2B)     => "11.7.6"
+      (Funding, OffshoreCentralBank, NonRmbsHqla2B)  => "11.7.8"
+      _                                              => item(row(r), 2)
+    }
+
+  // What r reports in ARF 210.1A item `i` (column 1). Only transactions
+  // maturing within 30 days are reported.
+  fn contribution(r: Repo, i: String) -> Money<AUD, MarketValue> =
+    if !maturing(r) then 0.AUD
+    else (if i == row(r) then r.cash else 0.AUD)
+       + (if qualifies(r) && i == of_which_row(r) then r.cash else 0.AUD)
+       + (if qualifies(r) && i == collateral_row(r) then r.collateral_value else 0.AUD)
+                                                                        @cite("ARS 210.0 pp. 48-50, 57-58")
+}

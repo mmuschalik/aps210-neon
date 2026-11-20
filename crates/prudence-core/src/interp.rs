@@ -267,6 +267,22 @@ impl<'a> Interp<'a> {
         })
     }
 
+    /// Call a module `fn` with positional arguments.
+    pub fn call_fn(&self, name: &str, args: Vec<Val>) -> R<Val> {
+        let d = self.decls.get(name).ok_or_else(|| format!("no fn `{name}`"))?;
+        let DeclKind::Fn { params, body: Some(body), .. } = &d.kind else { return Err(format!("`{name}` is not a fn with a body")) };
+        if params.len() != args.len() {
+            return Err(format!("`{name}` takes {} arguments", params.len()));
+        }
+        let mut scope: Scope = params.iter().map(|p| p.name.clone()).zip(args).collect();
+        self.eval(body, &mut scope)
+    }
+
+    /// The assumptions logged so far (subject, attribute) -> (value, reason).
+    pub fn assumptions(&self) -> BTreeMap<(String, String), (String, String)> {
+        self.assumptions.borrow().clone()
+    }
+
     fn param(&self, n: &str) -> R<&Val> {
         self.params.get(n).ok_or_else(|| format!("no parameter `{n}`"))
     }

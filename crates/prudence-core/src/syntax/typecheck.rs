@@ -144,6 +144,7 @@ impl<'m> Checker<'m> {
                 let g = |i: usize| generics.get(i).map(|t| self.resolve_ty(t)).unwrap_or(Ty::Unknown);
                 match name.as_str() {
                     "Bool" => Ty::Bool,
+                    "String" => Ty::Str,
                     "Int" => Ty::Int,
                     "Rate" => Ty::Rate,
                     "Date" => Ty::Date,

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/prudence-core", "crates/arf210", "crates/deposits"]
+members = ["crates/prudence-core", "crates/arf210", "crates/deposits", "crates/secured"]
 
 [workspace.package]
 edition = "2024"

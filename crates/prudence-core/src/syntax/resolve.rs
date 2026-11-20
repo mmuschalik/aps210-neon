@@ -11,8 +11,8 @@ const BUILTIN_VALUES: [&str; 19] = [
     "conservative", "known", "latest", "days", "bucket", "item", "min", "max", "sum", "all", "distinct", "events",
     "slices", "solo", "true", "false", "none", "Conservative", "Optimistic",
 ];
-const BUILTIN_TYPES: [&str; 17] = [
-    "Date", "Int", "Bool", "Rate", "Money", "AUD", "Carrying", "MarketValue", "Uncertain", "Option", "List",
+const BUILTIN_TYPES: [&str; 18] = [
+    "Date", "Int", "Bool", "String", "Rate", "Money", "AUD", "Carrying", "MarketValue", "Uncertain", "Option", "List",
     "GroupId", "ProductClass", "Contract", "ConservationSplit", "Book", "Mode",
 ];
 

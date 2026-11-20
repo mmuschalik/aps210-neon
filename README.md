@@ -25,6 +25,9 @@ cargo run -p arf210 -- 210.1A    # print a form spec for review against the PDF
 | `specs/deposits/retail_sme.prd` | **Source of truth** for the step-2 deposit rules: a Prudence `module` in the design.txt §4.A syntax (`view`, `fn`/`match`, `conservative(..)`, `optimize`, `partition`, `invariant`, `theorem`). Parsed, name-resolved, type-checked, proof obligations discharged by Z3, and executed by the interpreter. |
 | `crates/prudence-core` | Prudence: exact rationals (no floats anywhere); `syntax/lean` = Lean 4 backend; `lp` = exact two-phase simplex with a primal-dual certificate checker (every `optimize` is a general LP); `syntax/` (lexer, parser, name resolution, type checker, form lowering, printer, `prove` = Z3 proof obligations); the form IR and evaluator; `interp` = module interpreter (views, `optimize` with solution certificate, `partition` with run-time exhaustiveness, invariants, clause-level provenance). |
 | `crates/arf210` | Loads the four specs; cross-form rules; CLI; parity and scenario tests. |
+| `specs/secured/secured_funding.prd` | **Source of truth** for secured funding and lending (repos, reverse repos as ACTUS REP): what each transaction reports in ARF 210.1A items 11 and 19 (`contribution`), and the mechanical 30-day unwind of the HQLA stock (`unwind`, APS 210 Att A para 8). |
+| `crates/secured` | Data model and loader for repos; `run()` produces ARF 210.1A item 11/19 inputs and the unwind per HQLA class. `cargo run -p secured --bin secured-lean` regenerates `lean/Prudence/SecuredFunding.lean`. |
+| `lean/Prudence/UnwindProofs.lean` | design.txt §4.A.4's theorem: for every portfolio, the mechanical unwind equals the ARF 210.1A adjustment formulas (items 1.5.1, 2.5.1, 3.4.1, 3.5.1, generated from the form spec) applied to the reported items. |
 | `lean/Prudence/RetailSme.lean` | **Generated** Lean 4 model of `retail_sme.prd` (types, records, contracts, rules, partition outputs, and the ARF 210.1A / 210.6 measures from the form specs). Never edited by hand: `cargo run -p deposits --bin prudence-lean`. |
 | `lean/Prudence/Proofs.lean` | Machine-checked proofs, about the generated model, of the module's two `theorem`s (`unknowns_are_prudent`, `sme_cliff_never_increases_stable_funding`); no `sorry`, standard axioms only. `cd lean && lake build`. |
 | `crates/deposits` | Data model (ACTUS contract types, CDM-style bitemporal events, `Uncertain<T>` attributes), the loader into Prudence records, and `classify()`, which runs `retail_sme.prd` and maps its outputs onto the form specs. No hand-written rules. |
@@ -101,6 +104,11 @@ To confirm with APRA / auditors:
    a non-hardship withdrawal is recorded; the standard gives no cure period.
 
 ## Findings that refine design.txt
+
+- **The unwind theorem caught a spec bug.** The first draft reported reverse
+  repos with offshore central banks in item 11.7.x (a funding row); proving
+  unwind = ARF formula failed until the "of which"/collateral rows were made
+  leg-specific.
 
 - **The design sketch's theorem `monotonicity_sme_cliff` is false for the LCR**
   (25% retail -> 20% fully insured wholesale). The spec states and keeps the
