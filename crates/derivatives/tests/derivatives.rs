@@ -20,7 +20,9 @@ fn flow(s: &str, days: u64, amount_m: i64) -> Flow {
         set: s.into(),
         date: rd() + Days::new(days),
         amount: m(amount_m),
+        currency: "AUD".into(),
         fx_principal: false,
+        fx_trading: false,
         option: false,
         in_the_money: Uncertain::Known(true),
     }

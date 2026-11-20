@@ -50,7 +50,8 @@ pub fn print_form(f: &Form, header: &[&str]) -> String {
     }
     for c in &f.checks {
         let cite = c.cite.as_ref().map(|x| format!(" @cite({})", q(x))).unwrap_or_default();
-        s.push_str(&format!("  check {} {}: {}{cite}\n", q(&c.id), q(&c.description), cmp(&c.cond)));
+        let warn = if c.warn { "warn " } else { "" };
+        s.push_str(&format!("  check {warn}{} {}: {}{cite}\n", q(&c.id), q(&c.description), cmp(&c.cond)));
     }
     if !f.theorems.is_empty() {
         s.push('\n');

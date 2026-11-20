@@ -49,7 +49,9 @@ pub struct Flow {
     pub date: NaiveDate,
     /// Positive: receivable.
     pub amount: Q,
+    pub currency: String,
     pub fx_principal: bool,
+    pub fx_trading: bool,
     pub option: bool,
     pub in_the_money: Uncertain<bool>,
 }
@@ -137,7 +139,9 @@ pub fn load(b: &Book) -> Result<World, String> {
                     ("set".into(), set(&f.set)?),
                     ("date".into(), date(f.date)),
                     ("amount".into(), Val::Num(f.amount.clone())),
+                    ("currency".into(), Val::Str(f.currency.clone())),
                     ("fx_principal".into(), Val::Bool(f.fx_principal)),
+                    ("fx_trading".into(), Val::Bool(f.fx_trading)),
                     ("option".into(), Val::Bool(f.option)),
                     ("in_the_money".into(), itm),
                 ],
@@ -175,6 +179,12 @@ pub struct Run {
     pub lcr: BTreeMap<String, Q>,
     /// ARF 210.6 amounts (AUD).
     pub nsfr: BTreeMap<String, Q>,
+    /// Non-zero (netting set, item, AUD) contributions behind `lcr`; the
+    /// lookback (13.6) is portfolio-wide, under the id "lookback".
+    pub parts: Vec<(String, String, Q)>,
+    /// Items 13.1 / 21.1 by currency for the split of items 18 and 23:
+    /// (netting set, item, currency, AUD).
+    pub by_currency: Vec<(String, String, String, Q)>,
     pub assumptions: BTreeMap<(String, String), (String, String)>,
 }
 
@@ -192,18 +202,41 @@ pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mo
     it.check_invariants()?;
     let mut lcr: BTreeMap<String, Q> = LCR_ITEMS.iter().map(|i| (i.to_string(), Q::default())).collect();
     let mut nsfr: BTreeMap<String, Q> = NSFR_ITEMS.iter().map(|i| (i.to_string(), Q::default())).collect();
-    for k in 0..book.sets.len() {
+    let mut parts = Vec::new();
+    let mut by_currency = Vec::new();
+    for (k, set) in book.sets.iter().enumerate() {
         let s = Val::Rec("NettingSet".into(), k);
         for (item, total) in lcr.iter_mut() {
-            *total += num(it.call_fn("cash_flows", vec![s.clone(), Val::Str(item.clone())])?)?;
-            *total += num(it.call_fn("collateral", vec![s.clone(), Val::Str(item.clone())])?)?;
+            let q = num(it.call_fn("cash_flows", vec![s.clone(), Val::Str(item.clone())])?)?
+                + num(it.call_fn("collateral", vec![s.clone(), Val::Str(item.clone())])?)?;
+            if q != Q::default() {
+                parts.push((set.id.clone(), item.clone(), q.clone()));
+            }
+            *total += q;
+        }
+        let ccys: std::collections::BTreeSet<&String> =
+            book.flows.iter().filter(|f| f.set == set.id).map(|f| &f.currency).collect();
+        for c in ccys {
+            for item in ["13.1", "21.1"] {
+                let q = num(it.call_fn(
+                    "cash_flows_in_currency",
+                    vec![s.clone(), Val::Str(item.into()), Val::Str(c.clone())],
+                )?)?;
+                if q != Q::default() {
+                    by_currency.push((set.id.clone(), item.to_string(), c.clone(), q));
+                }
+            }
         }
         for (item, total) in nsfr.iter_mut() {
             *total += num(it.call_fn("nsfr", vec![s.clone(), Val::Str(item.clone())])?)?;
         }
     }
-    lcr.insert("13.6".into(), num(it.call_fn("largest_collateral_flow", vec![])?)?);
-    Ok(Run { lcr, nsfr, assumptions: it.assumptions() })
+    let lookback = num(it.call_fn("largest_collateral_flow", vec![])?)?;
+    if lookback != Q::default() {
+        parts.push(("lookback".into(), "13.6".into(), lookback.clone()));
+    }
+    lcr.insert("13.6".into(), lookback);
+    Ok(Run { lcr, nsfr, parts, by_currency, assumptions: it.assumptions() })
 }
 
 /// In AUD millions (the forms' unit).

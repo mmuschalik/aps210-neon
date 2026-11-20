@@ -41,6 +41,7 @@ pub fn lower_form(f: &FormDecl) -> Result<Form, String> {
     let mut checks = Vec::new();
     for c in &f.checks {
         checks.push(Check {
+            warn: c.warn,
             id: c.id.clone(),
             description: c.description.clone(),
             cite: cite(&c.anns),

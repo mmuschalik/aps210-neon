@@ -239,6 +239,8 @@ pub struct Run {
     pub items: BTreeMap<String, Q>,
     /// Mechanical unwind per HQLA class (AUD), from `unwind`.
     pub unwind: BTreeMap<HqlaClass, Q>,
+    /// Non-zero (record id, item, AUD) contributions behind `items`.
+    pub parts: Vec<(String, String, Q)>,
     pub assumptions: BTreeMap<(String, String), (String, String)>,
 }
 
@@ -257,24 +259,32 @@ pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode
     };
     let mut items: BTreeMap<String, Q> = secured_items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
     let mut stock: BTreeMap<String, Q> = stock_items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
-    for (n, _) in holdings.iter().enumerate() {
-        let h = Val::Rec("Holding".into(), n);
+    let mut unwind: BTreeMap<HqlaClass, Q> = HqlaClass::ALL.iter().map(|k| (*k, Q::default())).collect();
+    let mut parts = Vec::new();
+    for (n, h) in holdings.iter().enumerate() {
         for (item, total) in stock.iter_mut() {
-            *total += num(it.call_fn("holding_items", vec![h.clone(), Val::Str(item.clone())])?)?;
+            let q = num(it.call_fn("holding_items", vec![Val::Rec("Holding".into(), n), Val::Str(item.clone())])?)?;
+            if q != Q::default() {
+                parts.push((h.id.clone(), item.clone(), q.clone()));
+            }
+            *total += q;
         }
     }
-    let mut unwind: BTreeMap<HqlaClass, Q> = HqlaClass::ALL.iter().map(|k| (*k, Q::default())).collect();
-    for (n, _) in repos.iter().enumerate() {
+    for (n, repo) in repos.iter().enumerate() {
         let r = Val::Rec("Repo".into(), n);
         for (item, total) in items.iter_mut() {
-            *total += num(it.call_fn("contribution", vec![r.clone(), Val::Str(item.clone())])?)?;
+            let q = num(it.call_fn("contribution", vec![r.clone(), Val::Str(item.clone())])?)?;
+            if q != Q::default() {
+                parts.push((repo.id.clone(), item.clone(), q.clone()));
+            }
+            *total += q;
         }
         for (k, total) in unwind.iter_mut() {
             *total += num(it.call_fn("unwind", vec![r.clone(), Val::Ctor(k.ctor().into(), vec![])])?)?;
         }
     }
     items.extend(stock);
-    Ok(Run { items, unwind, assumptions: it.assumptions() })
+    Ok(Run { items, unwind, parts, assumptions: it.assumptions() })
 }
 
 /// ARF 210.1A inputs in AUD millions (the form's unit).

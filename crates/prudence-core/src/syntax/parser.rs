@@ -725,11 +725,12 @@ impl Parser {
                 if !is_check {
                     self.expect_kw("theorem")?;
                 }
+                let warn = is_check && self.eat_kw("warn");
                 let id = self.string()?;
                 let description = self.string()?;
                 self.expect_sym(":")?;
                 let cond = Self::unwrap_anns(self.expr()?, &mut pre);
-                let c = FormCheck { id, description, cond, anns: pre };
+                let c = FormCheck { warn, id, description, cond, anns: pre };
                 if is_check { checks.push(c) } else { theorems.push(c) }
             } else {
                 return Err(self.err("expected `item`, `check` or `theorem`"));

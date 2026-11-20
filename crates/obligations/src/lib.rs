@@ -149,6 +149,8 @@ pub fn items() -> Vec<&'static str> {
 pub struct Run {
     /// ARF 210.1A column-1 amounts (AUD).
     pub items: BTreeMap<String, Q>,
+    /// Non-zero (record id, item, AUD) contributions behind `items`.
+    pub parts: Vec<(String, String, Q)>,
     pub assumptions: BTreeMap<(String, String), (String, String)>,
 }
 
@@ -157,21 +159,30 @@ pub fn run(book: &Book, reporting_date: NaiveDate, mode: Mode) -> Result<Run, St
     let day = Val::Date(days_from_civil(i64::from(reporting_date.year()), reporting_date.month(), reporting_date.day()));
     let it = Interp::new(module(), &world, Options { mode, sense: None, params: vec![("reporting_date".into(), day)] })?;
     let mut items: BTreeMap<String, Q> = items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
-    for (table, f, n) in [
-        ("Facility", "facility", book.facilities.len()),
-        ("LendingCommitment", "commitment", book.commitments.len()),
-        ("ContingentObligation", "obligation", book.obligations.len()),
-    ] {
-        for k in 0..n {
+    let mut parts = Vec::new();
+    let ids = |t: &str| -> Vec<String> {
+        match t {
+            "Facility" => book.facilities.iter().map(|x| x.id.clone()).collect(),
+            "LendingCommitment" => book.commitments.iter().map(|x| x.id.clone()).collect(),
+            _ => book.obligations.iter().map(|x| x.id.clone()).collect(),
+        }
+    };
+    for (table, f) in [("Facility", "facility"), ("LendingCommitment", "commitment"), ("ContingentObligation", "obligation")] {
+        for (k, id) in ids(table).into_iter().enumerate() {
             for (item, total) in items.iter_mut() {
                 match it.call_fn(f, vec![Val::Rec(table.into(), k), Val::Str(item.clone())])? {
-                    Val::Num(q) => *total += q,
+                    Val::Num(q) => {
+                        if q != Q::default() {
+                            parts.push((id.clone(), item.clone(), q.clone()));
+                        }
+                        *total += q
+                    }
                     other => return Err(format!("{f}: expected a number, got {other:?}")),
                 }
             }
         }
     }
-    Ok(Run { items, assumptions: it.assumptions() })
+    Ok(Run { items, parts, assumptions: it.assumptions() })
 }
 
 /// In AUD millions (the form's unit).

@@ -1,0 +1,17 @@
+[package]
+name = "assembly"
+version = "0.1.0"
+description = "Assembles ARF 210.1A from every module's per-record contributions, with the currency split (items 18.x, 23.x)"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prudence-core = { path = "../prudence-core" }
+arf210 = { path = "../arf210" }
+deposits = { path = "../deposits" }
+secured = { path = "../secured" }
+obligations = { path = "../obligations" }
+loans = { path = "../loans" }
+derivatives = { path = "../derivatives" }
+chrono = { version = "0.4", default-features = false, features = ["std"] }

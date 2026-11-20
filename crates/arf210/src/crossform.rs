@@ -39,6 +39,7 @@ pub fn nsfr_vs_lcr(nsfr: &Evaluation, lcr_all: &Evaluation) -> Vec<Finding> {
     let mut rule = |id: &str, desc: &str, lhs: Q, rhs: &Q| {
         if &lhs > rhs {
             out.push(Finding {
+                warn: false,
                 check_id: id.into(),
                 description: desc.into(),
                 detail: format!("{} > {}", display(&lhs), display(rhs)),

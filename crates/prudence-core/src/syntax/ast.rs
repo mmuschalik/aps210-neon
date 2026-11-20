@@ -190,6 +190,8 @@ pub struct FormItem {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FormCheck {
+    /// `check warn ...`: reported, but does not make the return invalid.
+    pub warn: bool,
     pub id: String,
     pub description: String,
     pub cond: Expr,

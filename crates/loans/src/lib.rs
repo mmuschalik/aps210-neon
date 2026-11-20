@@ -114,6 +114,8 @@ pub fn load(loans: &[Loan]) -> World {
 pub struct Run {
     /// ARF 210.1A item 20.x amounts (AUD): contractual inflows within 30 days.
     pub inflows: BTreeMap<String, Q>,
+    /// Non-zero (loan id, item, AUD) contributions behind `inflows`.
+    pub parts: Vec<(String, String, Q)>,
     /// ARF 210.6 (item, bucket) -> principal (AUD).
     pub rsf: BTreeMap<(String, String), Q>,
     /// (loan, item, bucket, amount) slices.
@@ -126,10 +128,16 @@ pub fn run(loans: &[Loan], reporting_date: NaiveDate, mode: Mode) -> Result<Run,
     let it = Interp::new(module(), &world, Options { mode, sense: None, params: vec![("reporting_date".into(), date(reporting_date))] })?;
     let mut inflows: BTreeMap<String, Q> =
         ["20.1", "20.2", "20.3", "20.4", "20.5", "20.6"].iter().map(|i| (i.to_string(), Q::default())).collect();
-    for k in 0..loans.len() {
+    let mut parts = Vec::new();
+    for (k, l) in loans.iter().enumerate() {
         for (item, total) in inflows.iter_mut() {
             match it.call_fn("inflow", vec![Val::Rec("Loan".into(), k), Val::Str(item.clone())])? {
-                Val::Num(q) => *total += q,
+                Val::Num(q) => {
+                    if q != Q::default() {
+                        parts.push((l.id.clone(), item.clone(), q.clone()));
+                    }
+                    *total += q
+                }
                 other => return Err(format!("inflow: {other:?}")),
             }
         }
@@ -148,7 +156,7 @@ pub fn run(loans: &[Loan], reporting_date: NaiveDate, mode: Mode) -> Result<Run,
         *rsf.entry((item.clone(), bucket.clone())).or_default() += s.amount.clone();
         slices.push((s.subject, item, bucket, s.amount));
     }
-    Ok(Run { inflows, rsf, slices, assumptions: it.assumptions() })
+    Ok(Run { inflows, parts, rsf, slices, assumptions: it.assumptions() })
 }
 
 /// Form inputs in AUD millions: ARF 210.1A `item` and ARF 210.6 `item:bucket`.

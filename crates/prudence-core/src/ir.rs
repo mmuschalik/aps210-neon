@@ -215,6 +215,8 @@ pub struct Theorem {
 
 #[derive(Clone, Debug)]
 pub struct Check {
+    /// A warning: reported, but the return is still valid.
+    pub warn: bool,
     pub id: String,
     pub description: String,
     pub cite: Option<String>,

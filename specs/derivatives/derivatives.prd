@@ -42,8 +42,12 @@ module Derivatives(jurisdiction: AU_APRA) {
     set          : NettingSet
     date         : Date
     amount       : Money<AUD, Carrying>
+    currency     : String
     // Full exchange of FX principal on the same day: nettable without an MNA.
     fx_principal : Bool
+    // ... for proprietary trading, market-making or customer facilitation
+    // (rather than funding assets in another currency).
+    fx_trading   : Bool
     // Paid only if an option is exercised: assume exercised when in the money
     // for the buyer. Unknown: a payable flow is assumed paid, a receivable not.
     option       : Bool
@@ -150,6 +154,29 @@ module Derivatives(jurisdiction: AU_APRA) {
     else if i == "40.1.1" then assets(s)
     else if i == "40.1.2" then s.cash_vm_received_eligible
     else if i == "42.1" then s.initial_margin_posted
+    else 0.AUD
+
+  // ---------------------------------------------------------------- by currency (items 18.x, 23.x)
+
+  // The split of items 18 and 23 by underlying currency: FX principal
+  // exchanged to fund assets in another currency is gross, FX trading is
+  // excluded, and other flows net (within the currency) as for 13.1 / 21.1.
+  fn in_split(f: DerivativeFlow, c: String) -> Bool =
+    counted(f) && f.currency == c && !(f.fx_principal && f.fx_trading)      @cite("ARS Instructions pp. 55-56, 61-62")
+
+  fn ccy_in(s: NettingSet, c: String) -> Money<AUD, Carrying> =
+    sum(f in s.flows where in_split(f, c) && f.fx_principal | max(0.AUD, f.amount))
+    + (if nets(s) then max(0.AUD, sum(f in s.flows where in_split(f, c) && !f.fx_principal | f.amount))
+       else sum(f in s.flows where in_split(f, c) && !f.fx_principal | max(0.AUD, f.amount)))
+
+  fn ccy_out(s: NettingSet, c: String) -> Money<AUD, Carrying> =
+    sum(f in s.flows where in_split(f, c) && f.fx_principal | max(0.AUD, 0.AUD - f.amount))
+    + (if nets(s) then max(0.AUD, 0.AUD - sum(f in s.flows where in_split(f, c) && !f.fx_principal | f.amount))
+       else sum(f in s.flows where in_split(f, c) && !f.fx_principal | max(0.AUD, 0.AUD - f.amount)))
+
+  fn cash_flows_in_currency(s: NettingSet, i: String, c: String) -> Money<AUD, Carrying> =
+    if i == "13.1" then ccy_out(s, c)
+    else if i == "21.1" then ccy_in(s, c)
     else 0.AUD
 
   // Netting never adds: the netted outflow is at most the gross outflow.

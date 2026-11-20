@@ -36,6 +36,8 @@ pub enum Missing {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Finding {
+    /// From a `check warn`: worth a look, not an error.
+    pub warn: bool,
     pub check_id: String,
     pub description: String,
     pub detail: String,
@@ -141,7 +143,7 @@ pub fn evaluate<'f, K: AsRef<str>>(
                 (Value::Num(a), Value::Num(b)) => format!("{} vs {} ({})", display(&a), display(&b), chk.cond),
                 _ => format!("cannot be evaluated: {}", chk.cond),
             };
-            findings.push(Finding { check_id: chk.id.clone(), description: chk.description.clone(), detail });
+            findings.push(Finding { warn: chk.warn, check_id: chk.id.clone(), description: chk.description.clone(), detail });
         }
     }
     Ok(Evaluation { form, values, findings })
