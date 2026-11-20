@@ -256,3 +256,10 @@ pub fn arf_inputs(run: &Run) -> (BTreeMap<String, Q>, BTreeMap<String, Q>) {
     let nsfr = run.rsf.iter().map(|((i, b), v)| (format!("{i}:{b}"), v / &million)).collect();
     (lcr, nsfr)
 }
+
+/// The Lean model generated from the spec, measured on ARF 210.6, as written
+/// to lean/Prudence/Loans.lean.
+pub fn lean_source() -> Result<String, String> {
+    let targets: Vec<_> = arf210::lean_targets()?.into_iter().filter(|(t, _)| t == "Arf210_6").collect();
+    prudence_core::syntax::lean::generate(module(), &targets)
+}

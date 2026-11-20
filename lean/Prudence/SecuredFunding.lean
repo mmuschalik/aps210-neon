@@ -36,6 +36,7 @@ class ToOpt (α : Type) where
   toOpt : α → Option Int
 instance : ToOpt Int := ⟨some⟩
 instance : ToOpt (Option Int) := ⟨id⟩
+instance : ToOpt Nat := ⟨fun n => some (n : Int)⟩
 def pcmp {α β : Type} [ToOpt α] [ToOpt β] (r : Int → Int → Prop) [DecidableRel r] (a : α) (b : β) : Bool :=
   match ToOpt.toOpt a, ToOpt.toOpt b with
   | some x, some y => decide (r x y)
