@@ -59,3 +59,37 @@ pub fn nsfr() -> &'static Form {
 }
 
 pub use prudence_core::Missing;
+
+/// The ARF 210.1A weights and ARF 210.6 factors (whole percentages) that
+/// measure a module's partition in its generated Lean model.
+pub fn lean_targets() -> Result<Vec<(String, prudence_core::syntax::lean::Measure)>, String> {
+    use prudence_core::ir::{Cell, Expr};
+    use prudence_core::syntax::lean::Measure;
+    use std::collections::BTreeMap;
+    let pct = |q: &prudence_core::Q| -> Result<i64, String> {
+        let p = q * prudence_core::Q::from_integer(100.into());
+        if !p.is_integer() {
+            return Err(format!("{q} is not a whole percentage"));
+        }
+        num_traits::ToPrimitive::to_i64(&p.to_integer()).ok_or("overflow".into())
+    };
+    let constant = |c: Option<&Cell>| match c {
+        Some(Cell::Derived(Expr::Const(q))) => Some(q.clone()),
+        _ => None,
+    };
+    let mut weights = BTreeMap::new();
+    for it in &lcr_all().items {
+        if let Some(q) = constant(it.cell("weight")) {
+            weights.insert(it.id.clone(), pct(&q)?);
+        }
+    }
+    let mut factors = BTreeMap::new();
+    for it in &nsfr().items {
+        for (b, col) in ["f0", "f1", "f2"].iter().enumerate() {
+            if let Some(q) = constant(it.cell(col)) {
+                factors.insert((it.id.clone(), b as u32), pct(&q)?);
+            }
+        }
+    }
+    Ok(vec![("Arf210_1A".into(), Measure::Weight(weights)), ("Arf210_6".into(), Measure::Factor(factors))])
+}

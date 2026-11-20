@@ -137,3 +137,9 @@ pub fn run_with_certificates(
     slices.sort();
     Ok((slices, out.allocations))
 }
+
+/// The Lean model generated from the spec, measured on ARF 210.1A and
+/// ARF 210.6, as written to lean/Prudence/Wholesale.lean.
+pub fn lean_source() -> Result<String, String> {
+    prudence_core::syntax::lean::generate(module(), &arf210::lean_targets()?)
+}

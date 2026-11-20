@@ -176,7 +176,7 @@ def lcr_rate (W : World) (m : Mode) (d : Deposit) (covered : Bool) : Int :=
     | .LessStable => (10 : Int)
     | .HigherRunOff => (25 : Int)))
 
-/-- The `partition` portion of `d` with `covered`. -/
+/-- The `partition` portion of `d` for the split flags covered. -/
 def portion (W : World) (m : Mode) (d : Deposit) (covered : Bool) : Int :=
   if covered then ((W.covered m) d) else d.balance - ((W.covered m) d)
 
@@ -332,7 +332,7 @@ def weight_Arf210_1A : Option String → Int
   | some "9.5.5" => 100
   | _ => 0
 
-/-- Arf210_1A measure of `d` (percent of the amount). -/
+/-- Arf210_1A measure of `d` (Column-2 weights, percent of the amount). -/
 def measure_Arf210_1A (W : World) (m : Mode) (d : Deposit) : Int :=
   weight_Arf210_1A (out_lcr W m d true) * portion W m d true
     + weight_Arf210_1A (out_lcr W m d false) * portion W m d false
@@ -575,7 +575,7 @@ def factor_Arf210_6 : String × Nat → Int
   | ("9", 2) => 100
   | _ => 0
 
-/-- Arf210_6 measure of `d` (percent of the amount). -/
+/-- Arf210_6 measure of `d` (factors, percent of the amount). -/
 def measure_Arf210_6 (W : World) (m : Mode) (d : Deposit) : Int :=
   factor_Arf210_6 (out_nsfr W m d true) * portion W m d true
     + factor_Arf210_6 (out_nsfr W m d false) * portion W m d false

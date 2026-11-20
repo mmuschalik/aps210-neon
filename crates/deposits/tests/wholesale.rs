@@ -43,8 +43,8 @@ fn operational_deposit_splits_three_ways() {
     let mut got = items(&s, "op");
     got.sort();
     assert_eq!(got, vec![(some("9.2.2"), k(250)), (some("9.2.4"), k(350)), (some("9.2.6"), k(400))]);
-    // NSFR: the operational 600k at 50% (item 8.2), the excess as corporate funding (item 9).
-    let ops: Q = s.iter().filter(|x| x.nsfr.0 == "8.2").map(|x| x.amount.clone()).sum();
+    // NSFR: the operational 600k at 50% (item 8), the excess as corporate funding (item 9).
+    let ops: Q = s.iter().filter(|x| x.nsfr == ("8".to_string(), "b0".to_string())).map(|x| x.amount.clone()).sum();
     assert_eq!(ops, k(600));
 
     // Operational amount unknown: the whole deposit is excess (APG 210 para 135).

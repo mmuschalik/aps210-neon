@@ -50,10 +50,18 @@ struct Gen<'m> {
     fns: BTreeSet<String>,       // compiled fns
     world_fns: BTreeSet<String>, // abstract fns/views/allocs (world fields)
     moded: BTreeSet<String>,     // world fields taking Mode
+    /// Lean type of money and rates: `Int` (whole dollars), or `Rat` when
+    /// the module has fractional rates (exact, like the interpreter).
+    num: &'static str,
 }
 
 fn kw(n: &str) -> String {
-    const RESERVED: [&str; 12] = ["class", "match", "fun", "def", "let", "if", "then", "else", "do", "end", "where", "structure"];
+    const RESERVED: [&str; 40] = [
+        "class", "match", "fun", "def", "let", "if", "then", "else", "do", "end", "where", "structure", "prefix", "infix",
+        "infixl", "infixr", "postfix", "notation", "open", "namespace", "section", "theorem", "instance", "at", "by",
+        "have", "show", "from", "in", "for", "return", "macro", "syntax", "variable", "example", "abbrev", "inductive",
+        "deriving", "with", "axiom",
+    ];
     if RESERVED.contains(&n) { format!("«{n}»") } else { n.to_string() }
 }
 
@@ -79,7 +87,16 @@ impl<'m> Gen<'m> {
             fns: BTreeSet::new(),
             world_fns: BTreeSet::new(),
             moded: BTreeSet::new(),
+            num: "Int",
         };
+        let has_rate = |t: &Type| matches!(t, Type::Named { name, .. } if name == "Rate");
+        if m.decls.iter().any(|d| match &d.kind {
+            DeclKind::Data { fields, .. } => fields.iter().any(|f| has_rate(&f.ty)),
+            DeclKind::Param { ty, .. } => has_rate(ty),
+            _ => false,
+        }) {
+            g.num = "Rat";
+        }
         for d in &m.decls {
             match &d.kind {
                 DeclKind::TypeAlias(Type::Union(alts)) => {
@@ -157,7 +174,8 @@ impl<'m> Gen<'m> {
                 Ok(match name.as_str() {
                     "Bool" => "Bool".into(),
                     "String" => "String".into(),
-                    "Int" | "Date" | "Rate" | "Money" => "Int".into(),
+                    "Int" | "Date" => "Int".into(),
+                    "Rate" | "Money" => self.num.into(),
                     "GroupId" | "ProductClass" | "Mode" => name.clone(),
                     "Uncertain" => format!("U ({})", g(0)?),
                     "Option" => format!("Option ({})", g(0)?),
@@ -171,7 +189,8 @@ impl<'m> Gen<'m> {
     fn ty_of(&self, t: &Ty) -> String {
         match t {
             Ty::Bool => "Bool".into(),
-            Ty::Int | Ty::Num | Ty::Rate | Ty::Money(..) | Ty::Date => "Int".into(),
+            Ty::Int | Ty::Date => "Int".into(),
+            Ty::Num | Ty::Rate | Ty::Money(..) => self.num.into(),
             Ty::Str => "String".into(),
             Ty::Opaque(n) | Ty::Enum(n) | Ty::Data(n) | Ty::Event(n) => n.clone(),
             Ty::List(x) => format!("List ({})", self.ty_of(x)),
@@ -641,20 +660,43 @@ impl<'m> Gen<'m> {
         let DeclKind::Partition { var, source, targets: tnames, split, split_var, split_by, more_splits, cases } = &part.kind else {
             unreachable!()
         };
-        if !more_splits.is_empty() {
-            return Err("nested partition splits are not compiled to Lean yet".into());
-        }
         let src = self.ty(source)?;
-        // The split amount is evaluated before the split variable is bound.
-        let outer: BTreeSet<String> = BTreeSet::from([var.clone()]);
-        let amount_split = self.expr(split_by, &outer)?;
-        let amount_whole = self.expr(split, &outer)?;
-        let mut locals: BTreeSet<String> = BTreeSet::from([var.clone(), split_var.clone()]);
+        // Split variables in order; each split divides every portion of the
+        // previous one, and its amount sees the earlier split variables.
+        let splits: Vec<(&String, &Expr)> =
+            std::iter::once((split_var, split_by)).chain(more_splits.iter().map(|(n, e)| (n, e))).collect();
+        let flags: Vec<String> = splits.iter().map(|(n, _)| kw(n)).collect();
+        let binders: String = flags.iter().map(|f| format!(" ({f} : Bool)")).collect();
+        let args: String = flags.iter().map(|f| format!(" {f}")).collect();
+        let mut scope: BTreeSet<String> = BTreeSet::from([var.clone()]);
+        let whole = self.expr(split, &scope)?;
+        let mut body = String::new();
+        if splits.len() == 1 {
+            let a = self.expr(split_by, &scope)?;
+            write!(body, "  if {} then {a} else {whole} - {a}", flags[0]).unwrap();
+            scope.insert(split_var.clone());
+        } else {
+            writeln!(body, "  let p0 := {whole}").unwrap();
+            for (k, (n, amount)) in splits.iter().enumerate() {
+                let a = self.expr(amount, &scope)?;
+                let f = kw(n);
+                writeln!(body, "  let p{} := if {f} then {a} else p{k} - ({a})", k + 1).unwrap();
+                scope.insert((*n).clone());
+            }
+            write!(body, "  p{}", splits.len()).unwrap();
+        }
         writeln!(
             out,
-            "/-- The `partition` portion of `{var}` with `{split_var}`. -/\ndef portion (W : World) (m : Mode) ({var} : {src}) ({split_var} : Bool) : Int :=\n  if {split_var} then {amount_split} else {amount_whole} - {amount_split}\n"
+            "/-- The `partition` portion of `{var}` for the split flags {}. -/\ndef portion (W : World) (m : Mode) ({var} : {src}){binders} : {num} :=\n{body}\n",
+            flags.join(", "),
+            num = self.num,
         )
         .unwrap();
+        let locals = scope;
+        // Every combination of split flags.
+        let combos: Vec<String> = (0..1usize << splits.len())
+            .map(|c| (0..splits.len()).map(|i| if c >> (splits.len() - 1 - i) & 1 == 0 { " true" } else { " false" }).collect())
+            .collect();
         for (k, ((tname, measure), out_name)) in targets.iter().zip(cases[0].outputs.iter().map(|(n, _)| n)).enumerate() {
             if tnames.get(k) != Some(tname) {
                 return Err(format!("partition target {k} is {:?}, expected {tname}", tnames.get(k)));
@@ -681,35 +723,49 @@ impl<'m> Gen<'m> {
                     write!(body, "\n    -- remaining case (exhaustive by the Z3 obligation): {}\n    {val}", self.expr(&c.cond, &locals)?).unwrap();
                 }
             }
-            writeln!(out, "def out_{out_name} (W : World) (m : Mode) ({var} : {src}) ({split_var} : Bool) : {ret} :=\n  {body}\n").unwrap();
-            match measure {
+            // NSFR buckets written as "b0".."b2" are the factor table's 0..2.
+            if matches!(measure, Measure::Factor(_)) {
+                for b in 0..3 {
+                    body = body.replace(&format!("\"b{b}\")"), &format!("({b} : Nat))"));
+                }
+            }
+            writeln!(out, "def out_{out_name} (W : World) (m : Mode) ({var} : {src}){binders} : {ret} :=\n  {body}\n").unwrap();
+            let (table, sig) = match measure {
                 Measure::Weight(w) => {
                     writeln!(out, "/-- Column-2 weights of {tname} (percent). -/\ndef weight_{tname} : Option String → Int").unwrap();
                     for (item, pct) in w {
                         writeln!(out, "  | some {item:?} => {pct}").unwrap();
                     }
-                    writeln!(out, "  | _ => 0\n").unwrap();
-                    writeln!(
-                        out,
-                        "/-- {tname} measure of `{var}` (percent of the amount). -/\ndef measure_{tname} (W : World) (m : Mode) ({var} : {src}) : Int :=\n  weight_{tname} (out_{out_name} W m {var} true) * portion W m {var} true\n    + weight_{tname} (out_{out_name} W m {var} false) * portion W m {var} false\n"
-                    )
-                    .unwrap();
+                    (format!("weight_{tname}"), "Column-2 weights")
                 }
                 Measure::Factor(f) => {
                     writeln!(out, "/-- Factors of {tname} by maturity bucket (percent). -/\ndef factor_{tname} : String × Nat → Int").unwrap();
                     for ((item, b), pct) in f {
                         writeln!(out, "  | ({item:?}, {b}) => {pct}").unwrap();
                     }
-                    writeln!(out, "  | _ => 0\n").unwrap();
-                    writeln!(
-                        out,
-                        "/-- {tname} measure of `{var}` (percent of the amount). -/\ndef measure_{tname} (W : World) (m : Mode) ({var} : {src}) : Int :=\n  factor_{tname} (out_{out_name} W m {var} true) * portion W m {var} true\n    + factor_{tname} (out_{out_name} W m {var} false) * portion W m {var} false\n"
-                    )
-                    .unwrap();
+                    (format!("factor_{tname}"), "factors")
                 }
-            }
+            };
+            writeln!(out, "  | _ => 0\n").unwrap();
+            let terms: Vec<String> = combos
+                .iter()
+                .map(|c| {
+                    if self.num == "Int" {
+                        format!("{table} (out_{out_name} W m {var}{c}) * portion W m {var}{c}")
+                    } else {
+                        format!("({table} (out_{out_name} W m {var}{c}) : {}) * portion W m {var}{c}", self.num)
+                    }
+                })
+                .collect();
+            writeln!(
+                out,
+                "/-- {tname} measure of `{var}` ({sig}, percent of the amount). -/\ndef measure_{tname} (W : World) (m : Mode) ({var} : {src}) : {num} :=\n  {}\n",
+                terms.join("\n    + "),
+                num = self.num,
+            )
+            .unwrap();
+            let _ = &args;
         }
-        locals.clear();
         writeln!(out, "end {}", m.name).unwrap();
         Ok(out)
     }

@@ -84,7 +84,7 @@ module WholesaleDeposits(jurisdiction: AU_APRA) {
         SovereignCentralBankPseMdb => if covered then "9.3.1" else "9.3.3"
         _                          => if covered then item(prefix(d.holder), 2) else item(prefix(d.holder), 4)
       }                                                                @cite("Att A Table 3: 5% / 25%")
-      nsfr: ("8.2", "amount")                                          @cite("Att C para 14(b)")
+      nsfr: ("8", "b0")                                                @cite("Att C para 14(b)")
     case d.within_30_days && !d.called && !operational =>
       lcr: match d.holder.kind {
         NonFinancialCorporate      => if entirely_insured(d.holder) then "9.2.5" else "9.2.6"

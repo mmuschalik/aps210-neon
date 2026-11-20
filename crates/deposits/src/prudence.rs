@@ -197,33 +197,5 @@ pub fn run(book: &Book, params: &Params) -> Result<SpecRun, String> {
 /// The Lean model generated from the spec, measured on ARF 210.1A (weights)
 /// and ARF 210.6 (factors), as written to lean/Prudence/RetailSme.lean.
 pub fn lean_source() -> Result<String, String> {
-    use prudence_core::ir::{Cell, Expr};
-    use prudence_core::syntax::lean::{Measure, generate};
-    use std::collections::BTreeMap;
-    let pct = |q: &Q| -> Result<i64, String> {
-        let p = q * Q::from_integer(100.into());
-        if !p.is_integer() {
-            return Err(format!("{q} is not a whole percentage"));
-        }
-        num_traits::ToPrimitive::to_i64(&p.to_integer()).ok_or("overflow".into())
-    };
-    let constant = |c: Option<&Cell>| match c {
-        Some(Cell::Derived(Expr::Const(q))) => Some(q.clone()),
-        _ => None,
-    };
-    let mut weights = BTreeMap::new();
-    for it in &arf210::lcr_all().items {
-        if let Some(q) = constant(it.cell("weight")) {
-            weights.insert(it.id.clone(), pct(&q)?);
-        }
-    }
-    let mut factors = BTreeMap::new();
-    for it in &arf210::nsfr().items {
-        for (b, col) in ["f0", "f1", "f2"].iter().enumerate() {
-            if let Some(q) = constant(it.cell(col)) {
-                factors.insert((it.id.clone(), b as u32), pct(&q)?);
-            }
-        }
-    }
-    generate(module(), &[("Arf210_1A".into(), Measure::Weight(weights)), ("Arf210_6".into(), Measure::Factor(factors))])
+    prudence_core::syntax::lean::generate(module(), &arf210::lean_targets()?)
 }
