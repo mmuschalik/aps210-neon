@@ -43,12 +43,11 @@ fn main() -> ExitCode {
     match &report.bundle {
         Some(b) => {
             println!("bundle {}", b["bundle_id"].as_str().unwrap_or_default());
-            if let Some(path) = out {
-                if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(b).unwrap()) {
+            if let Some(path) = out
+                && let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(b).unwrap()) {
                     eprintln!("{path}: {e}");
                     return ExitCode::from(2);
                 }
-            }
             ExitCode::SUCCESS
         }
         None => {
