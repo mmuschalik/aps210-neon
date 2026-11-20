@@ -415,6 +415,10 @@ impl<'m> Checker<'m> {
 
     fn field_ty(&self, t: &Ty, f: &str) -> Option<Ty> {
         let find = |fs: &Vec<(String, Ty)>| fs.iter().find(|(n, _)| n == f).map(|(_, t)| t.clone());
+        // Every event is bitemporal: when it took effect, and when it was recorded.
+        if matches!(t, Ty::Event(_) | Ty::AnyEvent) && (f == "valid" || f == "recorded") {
+            return Some(Ty::Date);
+        }
         match t {
             Ty::Data(d) => self.data.get(d).and_then(find),
             Ty::Event(e) => self.events.get(e).and_then(find),
@@ -526,6 +530,7 @@ impl<'m> Checker<'m> {
                 let st = self.expr(source);
                 let elem = match st {
                     Ty::List(t) => *t,
+                    Ty::Table(d) => Ty::Data(d),
                     Ty::Unknown => Ty::Unknown,
                     other => {
                         self.err(first_pos(source), format!("comprehension over non-list {}", other.name()));
@@ -789,6 +794,10 @@ impl<'m> Checker<'m> {
                 (Div, Ty::Money(..), t) if t.is_numeric() => ta.clone(),
                 (Div, Ty::Money(..), Ty::Money(..)) => Ty::Rate,
                 (Add | Sub, Ty::Date, Ty::Days) => Ty::Date,
+                (Add, Ty::List(_), Ty::List(_)) => self.join(&ta, &tb).unwrap_or_else(|| {
+                    self.err(at, format!("cannot concatenate {} and {}", ta.name(), tb.name()));
+                    Ty::Unknown
+                }),
                 (_, x, y) if x.is_numeric() && y.is_numeric() => self.join(x, y).unwrap_or(Ty::Num),
                 _ => {
                     self.err(at, format!("cannot apply {op:?} to {} and {}", ta.name(), tb.name()));

@@ -1,0 +1,12 @@
+[package]
+name = "derivatives"
+version = "0.1.0"
+description = "Derivatives and collateral: ARF 210.1A items 13, 21.1; ARF 210.6 items 13, 40-42"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prudence-core = { path = "../prudence-core" }
+arf210 = { path = "../arf210" }
+chrono = { version = "0.4", default-features = false, features = ["std"] }

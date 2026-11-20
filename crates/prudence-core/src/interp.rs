@@ -256,17 +256,25 @@ impl<'a> Interp<'a> {
         }
         let slices = self.partition(part)?;
         *self.slices.borrow_mut() = Some(slices.clone());
-        for d in &self.module.decls {
-            if let DeclKind::Invariant(e) = &d.kind
-                && self.eval(e, &mut Vec::new())? != Val::Bool(true) {
-                    return Err(format!("invariant `{}` violated", d.name));
-                }
-        }
+        self.check_invariants()?;
         Ok(Output {
             slices,
             assumptions: self.assumptions.borrow().clone(),
             allocations: self.allocations.borrow().clone(),
         })
+    }
+
+    /// Evaluate every `invariant` over the world (modules without a partition
+    /// call this themselves; `run()` does it after partitioning).
+    pub fn check_invariants(&self) -> R<()> {
+        for d in &self.module.decls {
+            if let DeclKind::Invariant(e) = &d.kind
+                && self.eval(e, &mut Vec::new())? != Val::Bool(true)
+            {
+                return Err(format!("invariant `{}` violated", d.name));
+            }
+        }
+        Ok(())
     }
 
     /// Call a module `fn` with positional arguments.
@@ -497,6 +505,7 @@ impl<'a> Interp<'a> {
                     (Div, Val::Num(x), Val::Num(y)) => Ok(Val::Num(x / y)),
                     (Add, Val::Date(d), Val::Days(n)) => Ok(Val::Date(d + n)),
                     (Sub, Val::Date(d), Val::Days(n)) => Ok(Val::Date(d - n)),
+                    (Add, Val::List(x), Val::List(y)) => Ok(Val::List(x.iter().chain(y).cloned().collect())),
                     (Eq, ..) => Ok(Val::Bool(self.same(&l, &r))),
                     (Ne, ..) => Ok(Val::Bool(!self.same(&l, &r))),
                     (In, _, Val::List(xs)) => Ok(Val::Bool(xs.iter().any(|x| self.same(&l, x)))),
@@ -572,7 +581,11 @@ impl<'a> Interp<'a> {
     fn elements(&self, args: &[Arg], scope: &mut Scope) -> R<Vec<Val>> {
         match args {
             [Arg { value: Expr::Comprehension { var, source, filter, body }, .. }] => {
-                let items = list(self.eval(source, scope)?)?;
+                let items = match self.eval(source, scope)? {
+                    // Every record of a data type.
+                    Val::Table(t) => self.rows(&t),
+                    v => list(v)?,
+                };
                 let mut out = Vec::new();
                 for x in items {
                     scope.push((var.clone(), x.clone()));
@@ -674,9 +687,10 @@ impl<'a> Interp<'a> {
                 other => Err(at(format!("cycle(Date, Int, Date), got {other:?}"))),
             },
             "add_months" => match self.args_named(args, scope)?.0.as_slice() {
-                [Val::Date(d), Val::Num(m)] => {
-                    Ok(Val::Date(add_months(*d, u32::try_from(m.to_integer()).map_err(|e| at(e.to_string()))?)))
-                }
+                [Val::Date(d), Val::Num(m)] => Ok(Val::Date(crate::date::shift_months(
+                    *d,
+                    i64::try_from(m.to_integer()).map_err(|e| at(e.to_string()))?,
+                ))),
                 other => Err(at(format!("add_months(Date, Int), got {other:?}"))),
             },
             "pow" => match self.args_named(args, scope)?.0.as_slice() {

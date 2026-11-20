@@ -36,9 +36,14 @@ fn days_in_month(y: i64, m: u32) -> u32 {
 /// Add calendar months, clamping the day to the target month's length
 /// (31 Aug + 6 months = 28/29 Feb), matching chrono's `checked_add_months`.
 pub fn add_months(day: i64, months: u32) -> i64 {
+    shift_months(day, i64::from(months))
+}
+
+/// Add (or, if negative, subtract) calendar months, clamping the day.
+pub fn shift_months(day: i64, months: i64) -> i64 {
     let (y, m, d) = civil_from_days(day);
-    let total = (m - 1) + months;
-    let (y2, m2) = (y + i64::from(total / 12), total % 12 + 1);
+    let total = i64::from(m - 1) + months;
+    let (y2, m2) = (y + total.div_euclid(12), u32::try_from(total.rem_euclid(12)).unwrap() + 1);
     days_from_civil(y2, m2, d.min(days_in_month(y2, m2)))
 }
 
@@ -55,5 +60,7 @@ mod tests {
         let aug31 = days_from_civil(2026, 8, 31);
         assert_eq!(civil_from_days(add_months(aug31, 6)), (2027, 2, 28));
         assert_eq!(civil_from_days(add_months(days_from_civil(2026, 9, 30), 12)), (2027, 9, 30));
+        assert_eq!(civil_from_days(shift_months(days_from_civil(2026, 9, 30), -24)), (2024, 9, 30));
+        assert_eq!(civil_from_days(shift_months(days_from_civil(2026, 3, 31), -1)), (2026, 2, 28));
     }
 }

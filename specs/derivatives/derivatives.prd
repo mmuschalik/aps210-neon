@@ -1,0 +1,158 @@
+// Prudence source: derivatives and collateral - LCR cash flows and increased
+// liquidity needs (ARF 210.1A items 13.1-13.7, 21.1) and NSFR derivative
+// assets, liabilities and initial margin (ARF 210.6 items 13.1, 40.1, 42).
+
+@standard("APS 210", version: "2025-07-01", clause: "Att A Table 3 and footnote 5 (netting); Att C paras 9, 27-28, 36(a)")
+@reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 13, 21.1 (Instructions pp. 50-52); ARF 210.6 items 13, 40-42")
+module Derivatives(jurisdiction: AU_APRA) {
+
+  param reporting_date : Date
+  param known_at       : Date = reporting_date
+
+  // One counterparty's derivatives and their credit support annex.
+  data NettingSet {
+    counterparty : String
+    // An eligible master netting agreement (APS 112 Att H paras 9-11).
+    //                                                  Conservative: false (gross)
+    netting_agreement : Uncertain<Bool>              @cite("Att A Table 3 footnote 5; Att C paras 9, 27")
+    trades : List<Trade>
+    flows  : List<DerivativeFlow>
+    // Collateral terms and positions.
+    collateral_received         : Money<AUD, MarketValue>
+    required_from_counterparty  : Money<AUD, MarketValue>   // its current requirement
+    received_segregated         : Bool
+    hqla_substitutable          : Money<AUD, MarketValue>   // HQLA received it may swap for non-HQLA without consent
+    due_not_called              : Money<AUD, MarketValue>   // owed by the ADI, not yet demanded
+    downgrade_3_notches         : Money<AUD, MarketValue>   // further collateral on a 3-notch downgrade
+    posted_non_hqla1            : Money<AUD, MarketValue>
+    received_reusable           : Money<AUD, MarketValue>   // not restricted on reuse or re-hypothecation
+    variation_margin_posted     : Money<AUD, MarketValue>
+    cash_vm_received_eligible   : Money<AUD, MarketValue>   // Att C para 28 conditions, settlement currency
+    initial_margin_posted       : Money<AUD, MarketValue>
+  }
+
+  // A trade's mark-to-market (replacement cost): positive is an asset.
+  data Trade {
+    set : NettingSet
+    mtm : Money<AUD, MarketValue>
+  }
+
+  // An expected contractual cash flow: positive is receivable.
+  data DerivativeFlow {
+    set          : NettingSet
+    date         : Date
+    amount       : Money<AUD, Carrying>
+    // Full exchange of FX principal on the same day: nettable without an MNA.
+    fx_principal : Bool
+    // Paid only if an option is exercised: assume exercised when in the money
+    // for the buyer. Unknown: a payable flow is assumed paid, a receivable not.
+    option       : Bool
+    in_the_money : Uncertain<Bool>                  @cite("ARS Instructions p.50")
+  }
+
+  // A realised collateral flow under a netting set: positive is received.
+  // Bitemporal: `valid` is the settlement date, `recorded` when booked.
+  event CollateralFlow(set: NettingSet, amount: Money<AUD, MarketValue>)
+
+  // ---------------------------------------------------------------- 30-day cash flows
+
+  fn nets(s: NettingSet) -> Bool = conservative(s.netting_agreement, worst: false)
+
+  fn counted(f: DerivativeFlow) -> Bool =
+    reporting_date < f.date && f.date <= reporting_date + 30.days
+    && (!f.option || conservative(f.in_the_money, worst: f.amount < 0.AUD))
+
+  // Net (receivable - payable) of the flows that may be netted together:
+  // everything under an MNA; otherwise each flow alone, except FX principal
+  // exchanges on the same day (ARS Instructions p.50, conditions a-d).
+  fn net_in(s: NettingSet) -> Money<AUD, Carrying> =
+    if nets(s) then max(0.AUD, sum(f in s.flows where counted(f) | f.amount))
+    else sum(f in s.flows where counted(f) && !f.fx_principal | max(0.AUD, f.amount))
+       + sum(d in distinct(f in s.flows where counted(f) && f.fx_principal | f.date)
+             | max(0.AUD, sum(f in s.flows where counted(f) && f.fx_principal && f.date == d | f.amount)))
+
+  fn net_out(s: NettingSet) -> Money<AUD, Carrying> =
+    if nets(s) then max(0.AUD, 0.AUD - sum(f in s.flows where counted(f) | f.amount))
+    else sum(f in s.flows where counted(f) && !f.fx_principal | max(0.AUD, 0.AUD - f.amount))
+       + sum(d in distinct(f in s.flows where counted(f) && f.fx_principal | f.date)
+             | max(0.AUD, 0.AUD - sum(f in s.flows where counted(f) && f.fx_principal && f.date == d | f.amount)))
+
+  // ---------------------------------------------------------------- collateral (items 13.2-13.5, 13.7)
+
+  fn excess_callable(s: NettingSet) -> Money<AUD, MarketValue> =
+    if s.received_segregated then 0.AUD
+    else max(0.AUD, s.collateral_received - s.required_from_counterparty)    @cite("ARS Instructions p.51, item 13.3")
+
+  fn substitutable(s: NettingSet) -> Money<AUD, MarketValue> =
+    if s.received_segregated then 0.AUD else s.hqla_substitutable          @cite("ARS Instructions p.51, item 13.5")
+
+  fn posted_valuation_base(s: NettingSet) -> Money<AUD, MarketValue> =
+    max(0.AUD, s.posted_non_hqla1 - s.received_reusable)                   @cite("ARS Instructions p.52, item 13.7")
+
+  // ---------------------------------------------------------------- 24-month lookback (item 13.6)
+
+  fn lookback_start() -> Date = add_months(reporting_date, -24)
+
+  fn realised() -> List<CollateralFlow> =
+    distinct(e in events(as_of: reporting_date, known_at: known_at) where e is CollateralFlow | e)
+
+  // Absolute net collateral flow over the 30 days ending on `end`: netted
+  // within a netting set under an MNA, gross otherwise.
+  fn window(end: Date) -> Money<AUD, MarketValue> =
+    sum(s in NettingSet |
+      if nets(s)
+      then max(sum(e in realised() where e.set == s && end - 30.days < e.valid && e.valid <= end | e.amount),
+               0.AUD - sum(e in realised() where e.set == s && end - 30.days < e.valid && e.valid <= end | e.amount))
+      else sum(e in realised() where e.set == s && end - 30.days < e.valid && e.valid <= end
+               | max(e.amount, 0.AUD - e.amount)))
+
+  // A window's contents change only when a flow enters (end = its date) or
+  // leaves (end = its date + 30 days), so those ends, and the first and last
+  // possible ends, cover every window in the 24 months.
+  fn window_ends() -> List<Date> =
+    [lookback_start() + 30.days, reporting_date]
+    + distinct(e in realised() where lookback_start() + 30.days <= e.valid && e.valid <= reporting_date | e.valid)
+    + distinct(e in realised() where lookback_start() + 30.days <= e.valid + 30.days && e.valid + 30.days <= reporting_date
+               | e.valid + 30.days)
+
+  fn largest_collateral_flow() -> Money<AUD, MarketValue> =
+    max(d in window_ends() | window(d))                                    @cite("ARS Instructions p.51, item 13.6")
+
+  // ---------------------------------------------------------------- NSFR (Att C paras 9, 27-28, 36(a))
+
+  fn liabilities(s: NettingSet) -> Money<AUD, MarketValue> =
+    if nets(s) then max(0.AUD, 0.AUD - sum(t in s.trades | t.mtm))
+    else sum(t in s.trades | max(0.AUD, 0.AUD - t.mtm))
+
+  fn assets(s: NettingSet) -> Money<AUD, MarketValue> =
+    if nets(s) then max(0.AUD, sum(t in s.trades | t.mtm))
+    else sum(t in s.trades | max(0.AUD, t.mtm))
+
+  // ---------------------------------------------------------------- per netting set, per form item
+
+  // Items 13.1 and 21.1 are cash flows; the rest are collateral values.
+  fn cash_flows(s: NettingSet, i: String) -> Money<AUD, Carrying> =
+    if i == "13.1" then net_out(s)
+    else if i == "21.1" then net_in(s)
+    else 0.AUD
+
+  fn collateral(s: NettingSet, i: String) -> Money<AUD, MarketValue> =
+    if i == "13.2" then s.downgrade_3_notches
+    else if i == "13.3" then excess_callable(s)
+    else if i == "13.4" then s.due_not_called
+    else if i == "13.5" then substitutable(s)
+    else if i == "13.7" then posted_valuation_base(s)
+    else 0.AUD
+
+  fn nsfr(s: NettingSet, i: String) -> Money<AUD, MarketValue> =
+    if i == "13.1.1" then liabilities(s)
+    else if i == "13.1.2" then s.variation_margin_posted
+    else if i == "40.1.1" then assets(s)
+    else if i == "40.1.2" then s.cash_vm_received_eligible
+    else if i == "42.1" then s.initial_margin_posted
+    else 0.AUD
+
+  // Netting never adds: the netted outflow is at most the gross outflow.
+  invariant netting_never_adds:
+    forall s: NettingSet, net_out(s) <= sum(f in s.flows where counted(f) | max(0.AUD, 0.AUD - f.amount))
+}

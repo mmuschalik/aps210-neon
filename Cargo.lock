@@ -37,6 +37,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "derivatives"
+version = "0.1.0"
+dependencies = [
+ "arf210",
+ "chrono",
+ "prudence-core",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
