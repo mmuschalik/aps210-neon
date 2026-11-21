@@ -111,6 +111,31 @@ impl Parser {
     }
 
     // ------------------------------------------------------------------ annotations
+    /// Trailing annotations of a declaration; one followed by a declaration
+    /// keyword (`@linear data ...`) belongs to the next declaration instead.
+    fn trailing_annotations(&mut self) -> Result<Vec<Annotation>, String> {
+        const DECLS: [&str; 10] = ["data", "fn", "type", "param", "event", "view", "alloc", "partition", "invariant", "theorem"];
+        let mut out = Vec::new();
+        while self.is_sym("@") {
+            let save = self.i;
+            let ann = self.annotations_one()?;
+            if DECLS.iter().any(|k| self.is_kw(k)) {
+                self.i = save;
+                break;
+            }
+            out.push(ann);
+        }
+        Ok(out)
+    }
+
+    fn annotations_one(&mut self) -> Result<Annotation, String> {
+        let pos = self.pos();
+        self.i += 1;
+        let name = self.ident()?;
+        let args = if self.is_sym("(") && self.same_line() { self.args()? } else { Vec::new() };
+        Ok(Annotation { name, args, pos })
+    }
+
     fn annotations(&mut self) -> Result<Vec<Annotation>, String> {
         let mut out = Vec::new();
         while self.is_sym("@") {
@@ -258,10 +283,14 @@ impl Parser {
                 }
                 self.expect_kw("splitting")?;
                 let split = self.expr()?;
-                self.expect_kw("by")?;
-                let split_var = self.ident()?;
-                self.expect_sym(":")?;
-                let split_by = self.expr()?;
+                // Without `by`: the whole amount is one portion.
+                let (split_var, split_by) = if self.eat_kw("by") {
+                    let v = self.ident()?;
+                    self.expect_sym(":")?;
+                    (v, self.expr()?)
+                } else {
+                    ("_whole".to_string(), split.clone())
+                };
                 let mut more_splits = Vec::new();
                 while self.eat_sym(",") {
                     let n = self.ident()?;
@@ -283,7 +312,7 @@ impl Parser {
             }
             other => return Err(format!("{pos}: unknown declaration `{other}`")),
         };
-        anns.extend(self.annotations()?);
+        anns.extend(self.trailing_annotations()?);
         Ok(Decl { name, kind, anns, pos })
     }
 
@@ -696,6 +725,7 @@ impl Parser {
             if self.eat_kw("item") {
                 let id = self.string()?;
                 let label = self.string()?;
+                let observer = self.eat_kw("observer");
                 self.expect_sym("{")?;
                 let mut cells = Vec::new();
                 while !self.eat_sym("}") {
@@ -719,7 +749,7 @@ impl Parser {
                     cells.push((col, def));
                 }
                 pre.extend(self.annotations()?);
-                items.push(FormItem { id, label, cells, anns: pre, pos });
+                items.push(FormItem { id, label, observer, cells, anns: pre, pos });
             } else if self.is_kw("check") || self.is_kw("theorem") {
                 let is_check = self.eat_kw("check");
                 if !is_check {

@@ -29,11 +29,12 @@ pub fn print_form(f: &Form, header: &[&str]) -> String {
     for it in &f.items {
         s.push('\n');
         let cite = it.cite.as_ref().map(|c| format!(" @cite({})", q(c))).unwrap_or_default();
+        let obs = if it.observer { " observer" } else { "" };
         if it.cells.is_empty() {
-            s.push_str(&format!("  item {} {} {{}}{cite}\n", q(&it.id), q(&it.label)));
+            s.push_str(&format!("  item {} {}{obs} {{}}{cite}\n", q(&it.id), q(&it.label)));
             continue;
         }
-        s.push_str(&format!("  item {} {} {{\n", q(&it.id), q(&it.label)));
+        s.push_str(&format!("  item {} {}{obs} {{\n", q(&it.id), q(&it.label)));
         let w = it.cells.iter().map(|(c, _)| c.len()).max().unwrap_or(0);
         for (col, cell) in &it.cells {
             let body = match cell {

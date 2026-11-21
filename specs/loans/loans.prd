@@ -22,7 +22,7 @@ module Loans(jurisdiction: AU_APRA) {
   type Product = ResidentialMortgage | OtherLoan
   type Affiliation = External | IntraGroupBank | IntraGroupFinancial | IntraGroupOther
 
-  data Loan : Contract<ANN(payment: Money<AUD, Carrying>)
+  @linear data Loan : Contract<ANN(payment: Money<AUD, Carrying>)
                      | LAM(principal_per_period: Money<AUD, Carrying>)
                      | PAM(maturity: Date)
                      | UMP(minimum_payment: Money<AUD, Carrying>)> {

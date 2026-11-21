@@ -253,3 +253,31 @@ fn clf_from_raw_holdings_and_repos() {
     assert_eq!(r.items["21.3"], Q::from_u64(120_000_000).unwrap());
     assert_eq!(r.items["11.6.2"], Q::from_u64(50_000_000).unwrap());
 }
+
+/// Holdings are a linear pool: one partition per form, whose cases Z3 proves
+/// disjoint - a holding in the HQLA stock can never also be an inflow.
+#[test]
+fn holdings_are_a_linear_pool() {
+    use prudence_core::syntax::parse_module;
+    let forms = ["Arf210_1A"];
+    // A second placement of holdings into the same form is a type error.
+    let twice = SOURCE.to_string()
+        + "\n";
+    let twice = twice.replacen(
+        "  // ---------------------------------------------------------------- facts about a transaction",
+        "  partition g: Holding into Arf210_1A splitting g.market_value {\n    case true =>\n      lcr: \"21.3\"\n      value: g.market_value\n      memo: none\n  }\n\n  // ---------------------------------------------------------------- facts about a transaction",
+        1,
+    );
+    let errs = parse_module(&twice, &forms).unwrap_err();
+    assert!(errs.iter().any(|e| e.contains("linear data `Holding` is partitioned into Arf210_1A 2 times")), "{errs:?}");
+    // Overlapping roles (a stock holding that also flows in) fail the Z3 proof.
+    let overlap = SOURCE.replacen("    case !in_stock(h) && !in_clf(h) && maturing_security(h) =>", "    case !in_clf(h) && maturing_security(h) =>", 1);
+    assert_ne!(overlap, SOURCE);
+    let m = parse_module(&overlap, &forms).unwrap();
+    let obligations = prudence_core::syntax::prove::prove_module(&m).unwrap();
+    assert!(obligations.iter().any(|o| !o.proven && o.obligation.contains("disjoint")), "{:?}", obligations.iter().map(|o| (&o.obligation, o.proven)).collect::<Vec<_>>());
+    // A linear type that is never partitioned is a type error.
+    let unplaced = SOURCE.replacen("data Repo : Contract<", "@linear data Repo : Contract<", 1);
+    let errs = parse_module(&unplaced, &forms).unwrap_err();
+    assert!(errs.iter().any(|e| e.contains("linear data `Repo` is never partitioned")), "{errs:?}");
+}

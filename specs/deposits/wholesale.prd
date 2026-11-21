@@ -17,7 +17,7 @@ module WholesaleDeposits(jurisdiction: AU_APRA) {
     deposits : List<Deposit>
   }
 
-  data Deposit {
+  @linear data Deposit {
     holder  : Customer
     balance : Money<AUD, Carrying>
     // Withdrawable or maturing within 30 days (Att A para 45); otherwise no LCR outflow.

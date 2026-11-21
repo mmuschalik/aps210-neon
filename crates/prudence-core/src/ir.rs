@@ -159,6 +159,9 @@ pub struct Item {
     pub label: String,
     pub cite: Option<String>,
     pub header: bool,
+    /// An "of which" / memo row (design: `Observer<T>`): it may read totals,
+    /// but no total may read it.
+    pub observer: bool,
     /// Ordered: the first cell is the item's primary cell.
     pub cells: Vec<(String, Cell)>,
 }
@@ -264,7 +267,35 @@ impl Form {
         let form = Form { code, title, columns, default_input_col, items, checks, theorems: Vec::new(), index };
         form.check_references()?;
         form.check_acyclic()?;
+        form.check_observers()?;
         Ok(form)
+    }
+
+    /// Memo rows are never summed into the totals they are "of": no derived
+    /// cell of an ancestor of an observer item (20 for 20.7, 2 and 2.1 for
+    /// 2.1.9) may read it. Other rules may read memo rows (e.g. the unwind
+    /// adjustments read the collateral rows).
+    fn check_observers(&self) -> Result<(), String> {
+        for o in self.items.iter().filter(|it| it.observer) {
+            let parts: Vec<&str> = o.id.split('.').collect();
+            for k in 1..parts.len() {
+                let ancestor = parts[..k].join(".");
+                let Some(a) = self.item(&ancestor) else { continue };
+                for (col, cell) in &a.cells {
+                    if let Cell::Derived(e) = cell {
+                        let mut refs = Vec::new();
+                        e.refs(&mut refs);
+                        if let Some(r) = refs.iter().find(|r| r.item == o.id) {
+                            return Err(format!(
+                                "{}: total [{}:{col}] sums its memo row {r} (an observer): double counting",
+                                self.code, a.id
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn item(&self, id: &str) -> Option<&Item> {

@@ -432,7 +432,7 @@ form Arf210_3_2("ARF 210.3.2", "Contractual Maturity Mismatch – Funding Liabil
     balance = [3.1.1:at_call] + [3.1.1:d7] + [3.1.1:d15] + [3.1.1:d30] + [3.1.1:m2] + [3.1.1:m3] + [3.1.1:m6] + [3.1.1:m12] + [3.1.1:y2] + [3.1.1:y3] + [3.1.1:y5] + [3.1.1:y10] + [3.1.1:y10plus]
   }
 
-  item "3.1.1.1" "of which: RBA as counterparty" {
+  item "3.1.1.1" "of which: RBA as counterparty" observer {
     at_call = input
     d7      = input
     d15     = input
@@ -551,7 +551,7 @@ form Arf210_3_2("ARF 210.3.2", "Contractual Maturity Mismatch – Funding Liabil
     balance = [3.2.1:at_call] + [3.2.1:d7] + [3.2.1:d15] + [3.2.1:d30] + [3.2.1:m2] + [3.2.1:m3] + [3.2.1:m6] + [3.2.1:m12] + [3.2.1:y2] + [3.2.1:y3] + [3.2.1:y5] + [3.2.1:y10] + [3.2.1:y10plus]
   }
 
-  item "3.2.1.1" "of which: central bank as counterparty" {
+  item "3.2.1.1" "of which: central bank as counterparty" observer {
     at_call = input
     d7      = input
     d15     = input
@@ -704,7 +704,7 @@ form Arf210_3_2("ARF 210.3.2", "Contractual Maturity Mismatch – Funding Liabil
     balance = [5:at_call] + [5:d7] + [5:d15] + [5:d30] + [5:m2] + [5:m3] + [5:m6] + [5:m12] + [5:y2] + [5:y3] + [5:y5] + [5:y10] + [5:y10plus]
   }
 
-  item "5.1" "of which: offshore" {
+  item "5.1" "of which: offshore" observer {
     at_call = input
     d7      = input
     d15     = input
@@ -1182,7 +1182,7 @@ form Arf210_3_2("ARF 210.3.2", "Contractual Maturity Mismatch – Funding Liabil
     balance = [9.5:at_call] + [9.5:d7] + [9.5:d15] + [9.5:d30] + [9.5:m2] + [9.5:m3] + [9.5:m6] + [9.5:m12] + [9.5:y2] + [9.5:y3] + [9.5:y5] + [9.5:y10] + [9.5:y10plus]
   }
 
-  item "9.5.1" "of which: self-managed superannuation fund deposits" {
+  item "9.5.1" "of which: self-managed superannuation fund deposits" observer {
     at_call = input
     d7      = input
     d15     = input

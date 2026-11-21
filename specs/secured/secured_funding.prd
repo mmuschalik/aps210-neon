@@ -30,8 +30,9 @@ module SecuredFunding(jurisdiction: AU_APRA) {
   type ClfCategory = SupranationalOrForeignGovernment | Guaranteed | AdiIssued | AssetBacked | OtherPrivate
                   | SelfSecuritised | NotClfEligible
 
-  // A holding in the stock of liquid assets (Section A).
-  data Holding {
+  // A holding in the stock of liquid assets (Section A). Linear: each holding
+  // takes one role per form (see the partition below).
+  @linear data Holding {
     kind              : AssetKind
     issuer            : Issuer
     market_value      : Money<AUD, MarketValue>
@@ -102,9 +103,6 @@ module SecuredFunding(jurisdiction: AU_APRA) {
       Equity      => if h.issuer == NonFinancialCorporateIssuer && h.index_constituent then "3.3" else "none"
     }
 
-  fn stock(h: Holding, i: String) -> Money<AUD, MarketValue> =
-    if i == stock_row(h) then h.market_value else 0.AUD
-
   // ---------------------------------------------------------------- the CLF (alternative liquid assets)
 
   // RBA repo-eligible securities that are not HQLA, held for the CLF.
@@ -120,24 +118,33 @@ module SecuredFunding(jurisdiction: AU_APRA) {
       NotClfEligible                   => "none"
     }                                                                   @cite("Att A paras 15-16; ARS pp. 43-44")
 
-  fn clf(h: Holding, i: String) -> Money<AUD, MarketValue> =
-    (if i == clf_row(h) then h.value_after_rba_margin else 0.AUD)
-    // Item 6.4: CLF securities maturing within 30 days (not counted again as inflows).
-    + (if i == "6.4" && clf_row(h) != "none" && h.maturity <= reporting_date + 30.days
-       then h.value_after_rba_margin else 0.AUD)                       @cite("APG 210 para 105; ARS p.44")
+  fn in_stock(h: Holding) -> Bool = stock_row(h) != "none"
+  fn in_clf(h: Holding) -> Bool = clf_row(h) != "none"
+  fn maturing_security(h: Holding) -> Bool = !h.encumbered && h.maturity <= reporting_date + 30.days
 
-  // Everything a holding reports in Section A.
-  fn section_a(h: Holding, i: String) -> Money<AUD, MarketValue> = stock(h, i) + clf(h, i)
-
-  // Item 21.3: unencumbered securities outside the HQLA stock and the CLF
-  // that mature within 30 days flow in at 100%.
-  fn securities_inflow(h: Holding, i: String) -> Money<AUD, MarketValue> =
-    if i == "21.3" && !h.encumbered && stock_row(h) == "none" && clf_row(h) == "none"
-       && h.maturity <= reporting_date + 30.days
-    then h.market_value else 0.AUD                                      @cite("Att A para 65; APG 210 para 105")
-
-  // Everything a holding reports on ARF 210.1A.
-  fn holding_items(h: Holding, i: String) -> Money<AUD, MarketValue> = section_a(h, i) + securities_inflow(h, i)
+  // Each holding takes exactly one role on ARF 210.1A - the HQLA stock, the
+  // CLF, a maturing inflow (item 21.3), or none - so an asset in the stock or
+  // the CLF never also flows in (Att A para 31; APG 210 para 105). The cases
+  // are proven exhaustive and disjoint (Z3).
+  partition h: Holding into Arf210_1A splitting h.market_value {
+    case in_stock(h) =>
+      lcr: stock_row(h)
+      value: h.market_value
+      memo: none
+    case !in_stock(h) && in_clf(h) =>
+      lcr: clf_row(h)
+      value: h.value_after_rba_margin                                   @cite("Att A paras 15-16: after RBA margins")
+      // Item 6.4: CLF securities maturing within 30 days (an 'of which').
+      memo: (if h.maturity <= reporting_date + 30.days then "6.4" else none)   @cite("APG 210 para 105; ARS p.44")
+    case !in_stock(h) && !in_clf(h) && maturing_security(h) =>
+      lcr: "21.3"                                                       @cite("Att A para 65; APG 210 para 105")
+      value: h.market_value
+      memo: none
+    case !in_stock(h) && !in_clf(h) && !maturing_security(h) =>
+      lcr: none
+      value: h.market_value
+      memo: none
+  }
 
   // ---------------------------------------------------------------- facts about a transaction
 

@@ -151,11 +151,11 @@ form Arf210_2("ARF 210.2", "Minimum Liquidity Holdings Ratio") {
     amount = [1:amount] + [2:amount] + [3:amount] + [4:amount] + [5:amount] + [6:amount] + [7:amount]
   } @cite("sum of 1, 2, 3, 4, 5, 6, 7")
 
-  item "8.1" "of which: deposits placed with ADIs with a credit rating grade 3 or lower" {
+  item "8.1" "of which: deposits placed with ADIs with a credit rating grade 3 or lower" observer {
     amount = input
   }
 
-  item "8.2" "of which: debt securities issued by ADIs with a credit rating grade 3 or lower" {
+  item "8.2" "of which: debt securities issued by ADIs with a credit rating grade 3 or lower" observer {
     amount = input
   }
 

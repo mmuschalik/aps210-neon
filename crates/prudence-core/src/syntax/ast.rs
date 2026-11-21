@@ -183,6 +183,8 @@ pub enum CellDef {
 pub struct FormItem {
     pub id: String,
     pub label: String,
+    /// `observer`: an "of which" / memo row, never summed into a total.
+    pub observer: bool,
     pub cells: Vec<(String, CellDef)>,
     pub anns: Vec<Annotation>,
     pub pos: Pos,

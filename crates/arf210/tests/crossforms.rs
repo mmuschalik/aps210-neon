@@ -112,3 +112,17 @@ fn daily_report_ties_to_the_lcr_and_mlh_returns() {
     daily.insert("1.5:balance".into(), q(11));
     assert_eq!(ids(&daily_vs_mlh(&eval(arf210::daily(), &daily), &m)), ["210.5:1.5=210.2:1.2+1.3.2-1.3.5+6+7"]);
 }
+
+/// A total that sums its own "of which" row is rejected when the form is built.
+#[test]
+fn totals_cannot_sum_their_memo_rows() {
+    let src = arf210::SPECS.iter().find(|(c, _)| *c == "ARF 210.1A").unwrap().1;
+    let bad = src.replacen(
+        "amount   = [20.1:amount] + [20.2:amount] + [20.3:amount] + [20.4:amount] + [20.5:amount] + [20.6:amount]",
+        "amount   = [20.1:amount] + [20.2:amount] + [20.3:amount] + [20.4:amount] + [20.5:amount] + [20.6:amount] + [20.7:amount]",
+        1,
+    );
+    assert_ne!(bad, src, "the mutation applies");
+    let err = prudence_core::syntax::parse_form(&bad).unwrap_err();
+    assert!(err.contains("sums its memo row [20.7:amount]"), "{err}");
+}

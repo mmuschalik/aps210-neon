@@ -187,6 +187,31 @@ impl<'m> Checker<'m> {
                 self.enums.insert(d.name.clone(), ctors);
             }
         }
+        // Linear pools (design: Pool<T>): every record of a `@linear` data
+        // type is placed into each target form by exactly one partition, whose
+        // cases Z3 proves exhaustive and disjoint - so a record takes exactly
+        // one role per form (e.g. HQLA stock or a maturing inflow, never both).
+        for d in &self.m.decls {
+            if !matches!(d.kind, DeclKind::Data { .. }) || !d.anns.iter().any(|a| a.name == "linear") {
+                continue;
+            }
+            let mut by_form: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+            for p in &self.m.decls {
+                if let DeclKind::Partition { source: Type::Named { name, .. }, targets, .. } = &p.kind
+                    && name == &d.name
+                {
+                    for t in targets {
+                        *by_form.entry(t.as_str()).or_default() += 1;
+                    }
+                }
+            }
+            if by_form.is_empty() {
+                self.err(Some(d.pos), format!("linear data `{}` is never partitioned", d.name));
+            }
+            for (f, n) in by_form.into_iter().filter(|(_, n)| *n > 1) {
+                self.err(Some(d.pos), format!("linear data `{}` is partitioned into {f} {n} times", d.name));
+            }
+        }
         for d in &self.m.decls {
             match &d.kind {
                 DeclKind::Data { .. } => {

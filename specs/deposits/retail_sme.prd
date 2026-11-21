@@ -30,7 +30,7 @@ module RetailAndSmeDeposits(jurisdiction: AU_APRA) {
     deposits                 : List<Deposit>
   }
 
-  data Deposit : Contract<UMP | CLM(notice_days: Int, grace_end: Option<Date>)
+  @linear data Deposit : Contract<UMP | CLM(notice_days: Int, grace_end: Option<Date>)
                          | PAM(maturity: Date, early_withdrawal: Uncertain<WithdrawalTerms>)> {
     holder        : Customer
     product_class : ProductClass

@@ -35,6 +35,7 @@ pub fn lower_form(f: &FormDecl) -> Result<Form, String> {
             label: it.label.clone(),
             cite: cite(&it.anns),
             header: cells.is_empty(),
+            observer: it.observer,
             cells,
         });
     }

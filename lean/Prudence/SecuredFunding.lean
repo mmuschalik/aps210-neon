@@ -155,9 +155,6 @@ def stock_row (W : World) (m : Mode) (h : Holding) : String :=
     | .Rmbs => (if ((h.rating_grade == (1 : Int)) && (!h.own_or_associated)) then "3.1" else "none")
     | .Equity => (if ((h.issuer == Issuer.NonFinancialCorporateIssuer) && h.index_constituent) then "3.3" else "none")))
 
-def stock (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
-  (if (i == (stock_row W m h)) then h.market_value else (0 : Int))
-
 def clf_row (W : World) (m : Mode) (h : Holding) : String :=
   (if ((((!W.has_clf) || h.encumbered) || (!(resolve m h.operational false (!false)))) || ((stock_row W m h) != "none")) then "none" else (match h.clf_category with
     | .SupranationalOrForeignGovernment => "6.1.1"
@@ -168,17 +165,14 @@ def clf_row (W : World) (m : Mode) (h : Holding) : String :=
     | .SelfSecuritised => "6.1.6"
     | .NotClfEligible => "none"))
 
-def clf (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
-  ((if (i == (clf_row W m h)) then h.value_after_rba_margin else (0 : Int)) + (if (((i == "6.4") && ((clf_row W m h) != "none")) && (pcmp (· ≤ ·) h.maturity (W.reporting_date + (30 : Int)))) then h.value_after_rba_margin else (0 : Int)))
+def in_stock (W : World) (m : Mode) (h : Holding) : Bool :=
+  ((stock_row W m h) != "none")
 
-def section_a (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
-  ((stock W m h i) + (clf W m h i))
+def in_clf (W : World) (m : Mode) (h : Holding) : Bool :=
+  ((clf_row W m h) != "none")
 
-def securities_inflow (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
-  (if (((((i == "21.3") && (!h.encumbered)) && ((stock_row W m h) == "none")) && ((clf_row W m h) == "none")) && (pcmp (· ≤ ·) h.maturity (W.reporting_date + (30 : Int)))) then h.market_value else (0 : Int))
-
-def holding_items (W : World) (m : Mode) (h : Holding) (i : String) : Int :=
-  ((section_a W m h i) + (securities_inflow W m h i))
+def maturing_security (W : World) (m : Mode) (h : Holding) : Bool :=
+  ((!h.encumbered) && (pcmp (· ≤ ·) h.maturity (W.reporting_date + (30 : Int))))
 
 def maturing (W : World) (m : Mode) (r : Repo) : Bool :=
   (match r.contract with
@@ -238,6 +232,10 @@ def clf_collateral_row (W : World) (m : Mode) (r : Repo) : String :=
 
 def contribution (W : World) (m : Mode) (r : Repo) (i : String) : Int :=
   (if (!(maturing W m r)) then (0 : Int) else ((((if (i == (row W m r)) then r.cash else (0 : Int)) + (if ((qualifies W m r) && (i == (of_which_row W m r))) then r.cash else (0 : Int))) + (if ((qualifies W m r) && (i == (collateral_row W m r))) then r.collateral_value else (0 : Int))) + (if (i == (clf_collateral_row W m r)) then r.collateral_value else (0 : Int))))
+
+/-- The `partition` portion of `h` for the split flags _whole. -/
+def portion (W : World) (m : Mode) (h : Holding) (_whole : Bool) : Int :=
+  if _whole then h.market_value else h.market_value - h.market_value
 
 -- ARF 210.1A adjustment formulas
 

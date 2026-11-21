@@ -22,7 +22,7 @@ pub const SOURCE: &str = include_str!("../../../specs/secured/secured_funding.pr
 
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
-    M.get_or_init(|| parse_module(SOURCE, &[]).unwrap_or_else(|e| panic!("secured_funding.prd:\n{}", e.join("\n"))))
+    M.get_or_init(|| parse_module(SOURCE, &["Arf210_1A"]).unwrap_or_else(|e| panic!("secured_funding.prd:\n{}", e.join("\n"))))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -261,13 +261,21 @@ pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode
     let mut stock: BTreeMap<String, Q> = stock_items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
     let mut unwind: BTreeMap<HqlaClass, Q> = HqlaClass::ALL.iter().map(|k| (*k, Q::default())).collect();
     let mut parts = Vec::new();
-    for (n, h) in holdings.iter().enumerate() {
-        for (item, total) in stock.iter_mut() {
-            let q = num(it.call_fn("holding_items", vec![Val::Rec("Holding".into(), n), Val::Str(item.clone())])?)?;
-            if q != Q::default() {
-                parts.push((h.id.clone(), item.clone(), q.clone()));
+    // Holdings: one role each, from the linear partition.
+    let out = it.run()?;
+    for sl in &out.slices {
+        let value = match sl.output("value") {
+            Some(v) => num(v.clone())?,
+            None => sl.amount.clone(),
+        };
+        for key in ["lcr", "memo"] {
+            if let Some(Val::Str(item)) = sl.output(key)
+                && value != Q::default()
+            {
+                let total = stock.get_mut(item).ok_or_else(|| format!("{}: {item} is not a Section A input", sl.subject))?;
+                *total += value.clone();
+                parts.push((sl.subject.clone(), item.clone(), value.clone()));
             }
-            *total += q;
         }
     }
     for (n, repo) in repos.iter().enumerate() {
