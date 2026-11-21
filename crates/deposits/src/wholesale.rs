@@ -44,6 +44,8 @@ pub struct Deposit {
     pub fcs_eligible: Uncertain<bool>,
     pub operational_service: Uncertain<bool>,
     pub operational_balance: Uncertain<Q>,
+    /// Contractual maturity (ARF 210.3.2); `None`: at call.
+    pub maturity: Option<NaiveDate>,
 }
 
 /// One slice: the account, its amount, and its LCR / NSFR items.

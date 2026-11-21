@@ -37,6 +37,7 @@ fn bank(with_fx_swap: bool) -> Bank {
         fcs_eligible: Uncertain::Known(false),
         operational_service: Uncertain::Known(false),
         operational_balance: Uncertain::unknown("n/a"),
+        maturity: Some(rd() + Days::new(20)),
     });
     b.currency.insert("corp-usd".into(), "USD".into());
     b.holdings.push(secured::Holding {
@@ -381,4 +382,52 @@ fn complete_gate_requires_all_evidence_and_accepts_assembled_package() {
     let mut missing = p;
     missing.contexts.clear();
     assert!(checker::check_complete(&missing).failures().iter().any(|f| f.contains("reporting context is required")));
+}
+
+/// Every return the engine can produce, from one bank, through the strict
+/// gate: each cross-form rule of the design's verification gate runs on
+/// engine output (210.2 is for MLH ADIs, so its rule is skipped by regime).
+#[test]
+fn all_returns_from_one_bank_pass_every_cross_form_rule() {
+    let b = with_ledger(bank(true));
+    let r = lcr_return(&b, rd(), Mode::Conservative).unwrap();
+    let context = checker::ReportingContext {
+        entity: "test-bank".into(),
+        reporting_date: rd().to_string(),
+        consolidation: "level1".into(),
+        regime: "lcr".into(),
+    };
+    let p = package_all(&b, &r, context, rd(), Mode::Conservative).unwrap();
+    // The maturity ladders hold the modelled balance sheet.
+    let assets = &p.optional_inputs["ARF 210.3.1"];
+    assert!(assets.contains_key("2.1.1:y10plus"), "{assets:?}"); // the bond, no maturity
+    assert!(assets.keys().any(|k| k.starts_with("6.1.3:")), "the corporate loan");
+    let rep = checker::check_complete(&p);
+    assert!(rep.passed(), "{:?}", rep.failures());
+    let bundle = rep.bundle.unwrap();
+    let cov = bundle["coverage"]["cross_form"].as_array().unwrap();
+    let status = |rule: &str| cov.iter().find(|c| c["rule"] == rule).unwrap()["status"].as_str().unwrap().to_string();
+    for rule in [
+        "nsfr_vs_lcr",
+        "aud_vs_all",
+        "daily_lcr_stock",
+        "daily_all_lcr_ratio",
+        "daily_aud_lcr_ratio",
+        "funding_plan_vs_assets",
+        "funding_plan_vs_liabilities",
+    ] {
+        assert_eq!(status(rule), "evaluated", "{rule}");
+    }
+    assert_eq!(status("daily_vs_mlh"), "skipped");
+
+    // A lodged 210.4 that disagrees with the maturity ladder is caught.
+    let mut q = p.clone();
+    let k = q.optional_inputs["ARF 210.4"].keys().next().unwrap().clone();
+    *q.optional_inputs.get_mut("ARF 210.4").unwrap().get_mut(&k).unwrap() += Q::from_integer(1.into());
+    let rep = checker::check_complete(&q);
+    assert!(!rep.passed() && rep.bundle.is_none());
+    // A daily report whose HQLA differ from the LCR return is caught.
+    let mut q = p.clone();
+    q.optional_inputs.get_mut("ARF 210.5").unwrap().insert("1.1:balance".into(), Q::from_integer(1.into()));
+    assert!(checker::check_complete(&q).failures().iter().any(|f| f.contains("210.5:1.1=210.1A:25")));
 }

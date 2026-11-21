@@ -10,6 +10,8 @@
 //! swaps gross, FX trading excluded) rather than the netted totals; the form
 //! therefore states the tie-out to items 18 and 23 as a warning, not an error.
 
+pub mod maturity;
+
 use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
@@ -428,4 +430,47 @@ pub fn package_with_context(bank: &Bank, ret: &Return, context: checker::Reporti
         p.contexts.insert(code.into(), context.clone());
     }
     p
+}
+
+/// The engine's contributions in the checker's form.
+pub fn checker_parts(ret: &Return) -> Vec<checker::Part> {
+    ret.parts
+        .iter()
+        .map(|p| checker::Part {
+            record: p.record.clone(),
+            item: p.item.clone(),
+            currency: p.currency.clone(),
+            amount: p.amount.clone(),
+            stream: match p.stream {
+                Stream::Both => checker::Stream::Both,
+                Stream::Total => checker::Stream::Total,
+                Stream::Split => checker::Stream::Split,
+            },
+        })
+        .collect()
+}
+
+/// Every return the engine can produce for one reporting context: ARF 210.1A,
+/// 210.1B, 210.6, and (from the same records) 210.3.1, 210.3.2, the actual
+/// column of 210.4 and the same-date figures of 210.5. ARF 210.2 is for MLH
+/// ADIs, which do not report the LCR.
+pub fn package_all(
+    bank: &Bank,
+    ret: &Return,
+    context: checker::ReportingContext,
+    date: NaiveDate,
+    mode: Mode,
+) -> Result<checker::Package, String> {
+    let mut p = package_with_context(bank, ret, context.clone(), date);
+    for b in maturity::build(bank, ret, date, mode)? {
+        for c in &b.contributions {
+            if !p.records.iter().any(|r| r.id == c.source) {
+                p.external_sources.entry(c.source.clone()).or_insert_with(|| "the same-date LCR return".into());
+            }
+        }
+        p.optional_inputs.insert(b.code.into(), b.inputs);
+        p.form_contributions.insert(b.code.into(), b.contributions);
+        p.contexts.insert(b.code.into(), context.clone());
+    }
+    Ok(p)
 }

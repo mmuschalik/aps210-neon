@@ -263,3 +263,28 @@ pub fn lean_source() -> Result<String, String> {
     let targets: Vec<_> = arf210::lean_targets()?.into_iter().filter(|(t, _)| t == "Arf210_6").collect();
     prudence_core::syntax::lean::generate(module(), &targets)
 }
+
+/// Principal falling due before each date in `ends` (exclusive), per loan,
+/// from the spec's own schedule (`principal_before`): the cumulative
+/// repayment profile behind the ARF 210.3.1 maturity ladder.
+pub fn repayment_profile(
+    loans: &[Loan],
+    reporting_date: NaiveDate,
+    mode: Mode,
+    ends: &[NaiveDate],
+) -> Result<Vec<Vec<Q>>, String> {
+    let world = load(loans);
+    let it = Interp::new(module(), &world, Options { mode, sense: None, params: vec![("reporting_date".into(), date(reporting_date))] })?;
+    let mut out = Vec::new();
+    for k in 0..loans.len() {
+        let mut row = Vec::new();
+        for e in ends {
+            match it.call_fn("principal_before", vec![Val::Rec("Loan".into(), k), date(*e)])? {
+                Val::Num(q) => row.push(q),
+                other => return Err(format!("principal_before: {other:?}")),
+            }
+        }
+        out.push(row);
+    }
+    Ok(out)
+}

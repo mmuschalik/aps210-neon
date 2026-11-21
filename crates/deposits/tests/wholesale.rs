@@ -21,6 +21,7 @@ fn dep(id: &str, cust: &str, bal_k: u64) -> Deposit {
         fcs_eligible: Uncertain::Known(true),
         operational_service: Uncertain::Known(false),
         operational_balance: Uncertain::unknown("not assessed"),
+        maturity: None,
     }
 }
 fn items(s: &[WSlice], acct: &str) -> Vec<(Option<String>, Q)> {

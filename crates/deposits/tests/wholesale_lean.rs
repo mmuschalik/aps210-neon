@@ -109,6 +109,7 @@ fn generated_model_agrees_with_the_interpreter() {
             } else {
                 Uncertain::Known(Q::from_integer((1000 * next(1000) as i64).into()))
             },
+            maturity: None,
         };
         let c = Customer { id: d.customer_id.clone(), kind };
         for mode in [Mode::Conservative, Mode::Optimistic] {
