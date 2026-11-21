@@ -626,3 +626,97 @@ fn marginal_liquidity_costs_follow_the_caps() {
     assert_eq!(m[2].net_outflows, Q::default());
     assert_eq!(m[2].liquidity_cost, Q::default());
 }
+
+/// An operational wholesale deposit with a known operational balance (NSFR
+/// row 8.2, a single-column cell) passes the strict gate: the allocation
+/// binding and the lodged NSFR use the same cell key. (Found by the parallel
+/// session's synthetic-data generator.)
+#[test]
+fn operational_wholesale_deposits_pass_the_gate() {
+    let mut b = bank(false);
+    b.wholesale_deposits[0].operational_service = Uncertain::Known(true);
+    b.wholesale_deposits[0].operational_balance = Uncertain::Known(m(25));
+    b.wholesale_deposits[0].fcs_eligible = Uncertain::Known(true);
+    let b = with_ledger(b);
+    let r = lcr_return(&b, rd(), Mode::Conservative).unwrap();
+    assert!(r.nsfr_inputs.contains_key("8.2"), "{:?}", r.nsfr_inputs.keys().collect::<Vec<_>>());
+    let p = package_all(&b, &r, ctx("lcr"), rd(), Mode::Conservative, &assembly::maturity::Extras::default()).unwrap();
+    let rep = checker::check_complete(&p);
+    assert!(rep.passed(), "{:?}", rep.failures());
+}
+
+// ---------------------------------------------------------------- overlays and effective dates
+
+fn signed_overlay(key: &[u8]) -> checker::Overlay {
+    let mut o = checker::Overlay {
+        id: "apra-2026-17".into(),
+        kind: checker::OverlayKind::ApraDiscretion,
+        form: "ARF 210.1A".into(),
+        cell: "29.1:value".into(),
+        amount: Q::from_integer(5.into()),
+        apra_instrument: Some("APRA letter 2026/17 (APS 210 para 71)".into()),
+        reason: "Net cash outflow overlay".into(),
+        approver: "cfo".into(),
+        effective: "2026-07-01".into(),
+        expiry: "2026-12-31".into(),
+        signature: String::new(),
+    };
+    o.signature = checker::sign(&o, key);
+    o
+}
+
+/// APRA discretions and data patches are signed, expiring overlays: the
+/// lodged cell must equal the contributions plus the overlay, and the gate
+/// rejects a forged, expired, uncited or unlodged overlay.
+#[test]
+fn signed_overlays_with_expiry() {
+    let b = with_ledger(bank(false));
+    let r = lcr_return(&b, rd(), Mode::Conservative).unwrap();
+    let base = package_all(&b, &r, ctx("lcr"), rd(), Mode::Conservative, &assembly::maturity::Extras::default()).unwrap();
+    let key = b"cfo-signing-key".to_vec();
+    let keys: BTreeMap<String, Vec<u8>> = [("cfo".to_string(), key.clone())].into();
+    // Overlays are applied before the dependent returns are derived.
+    let overlay = signed_overlay(&key);
+    let mut r2 = lcr_return(&b, rd(), Mode::Conservative).unwrap();
+    assembly::apply_overlays(&mut r2, std::slice::from_ref(&overlay));
+    let mut p = package_all(&b, &r2, ctx("lcr"), rd(), Mode::Conservative, &assembly::maturity::Extras::default()).unwrap();
+    p.overlays.push(overlay);
+    let rep = checker::check_signed(&p, &keys);
+    assert!(rep.passed(), "{:?}", rep.failures());
+    assert!(rep.bundle.unwrap()["overlays"].as_array().is_some_and(|o| o.len() == 1));
+    let failing = |p: &checker::Package, what: &str| {
+        let f = checker::check_signed(p, &keys).failures();
+        assert!(f.iter().any(|x| x.contains(what)), "{what}: {f:?}");
+    };
+    // Changed after signing.
+    let mut q = p.clone();
+    q.overlays[0].amount = Q::from_integer(50.into());
+    q.lcr_inputs.insert("29.1:value".into(), Q::from_integer(50.into()));
+    failing(&q, "signature does not verify");
+    // Expired (signed, but no longer in force).
+    let mut q = p.clone();
+    q.overlays[0].expiry = "2026-09-29".into();
+    q.overlays[0].signature = checker::sign(&q.overlays[0], &key);
+    failing(&q, "expired on 2026-09-29");
+    // A discretion must cite its APRA instrument.
+    let mut q = p.clone();
+    q.overlays[0].apra_instrument = None;
+    q.overlays[0].signature = checker::sign(&q.overlays[0], &key);
+    failing(&q, "must cite its instrument");
+    // Lodging a figure without its overlay (an Excel overlay).
+    let mut q = base.clone();
+    q.lcr_inputs.insert("29.1:value".into(), Q::from_integer(5.into()));
+    failing(&q, "29.1:value: lodged 5");
+    // An approver whose key the gate does not hold.
+    assert!(checker::check_signed(&p, &BTreeMap::new()).failures().iter().any(|f| f.contains("no key for approver cfo")));
+}
+
+/// A spec runs only for reporting dates in its `@effective` period.
+#[test]
+fn specs_are_only_in_force_from_their_effective_date() {
+    let b = bank(false);
+    let before = NaiveDate::from_ymd_opt(2025, 6, 30).unwrap();
+    let err = lcr_return(&b, before, Mode::Conservative).err().unwrap();
+    assert!(err.contains("not in force at the reporting date"), "{err}");
+    assert!(lcr_return(&b, rd(), Mode::Conservative).is_ok());
+}

@@ -13,6 +13,7 @@
 
 @standard("APS 210", version: "2025-07-01", clause: "Att A paras 6-8, 22-25; Table 3; Table 4")
 @reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 1.5-3.6, 11, 19")
+@effective(from: "2025-07-01")
 module SecuredFunding(jurisdiction: AU_APRA) {
 
   param reporting_date : Date

@@ -5,6 +5,7 @@
 @standard("APS 210", version: "2025-07-01", clause: "Att A §§34-46; Att C §§8, 12-14")
 @guidance("APG 210", version: "2025-07", clause: "§§106-131, 164")
 @reporting("ARS 210.0", version: "2023-03-31")
+@effective(from: "2025-07-01")
 module RetailAndSmeDeposits(jurisdiction: AU_APRA) {
 
   param reporting_date : Date

@@ -105,6 +105,58 @@ pub struct FormContribution {
     pub amount: Q,
 }
 
+/// What an overlay is (design 4.A.6: no Excel overlays).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlayKind {
+    /// An APRA discretion in writing (e.g. the net cash outflow overlay,
+    /// ARF 210.1A item 29.1; ARF 210.6 items 18/46/54).
+    ApraDiscretion,
+    /// A temporary correction to a figure, pending a fix at the source.
+    DataPatch,
+}
+
+/// A signed adjustment to one lodged cell, in force for a fixed period.
+#[derive(Clone, Debug)]
+pub struct Overlay {
+    pub id: String,
+    pub kind: OverlayKind,
+    pub form: String,
+    pub cell: String,
+    /// Added to the value the contributions give (reporting units).
+    pub amount: Q,
+    /// The APRA instrument (required for a discretion).
+    pub apra_instrument: Option<String>,
+    pub reason: String,
+    pub approver: String,
+    /// In force from `effective` to `expiry` inclusive (YYYY-MM-DD).
+    pub effective: String,
+    pub expiry: String,
+    /// HMAC-SHA256 of `overlay_message` under the approver's key.
+    pub signature: String,
+}
+
+/// The signed content of an overlay: every field but the signature.
+pub fn overlay_message(o: &Overlay) -> String {
+    format!(
+        "{}\n{:?}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        o.id,
+        o.kind,
+        o.form,
+        o.cell,
+        o.amount,
+        o.apra_instrument.clone().unwrap_or_default(),
+        o.reason,
+        o.approver,
+        o.effective,
+        o.expiry
+    )
+}
+
+/// Sign an overlay with the approver's key.
+pub fn sign(o: &Overlay, key: &[u8]) -> String {
+    sha256::hmac_hex(key, overlay_message(o).as_bytes())
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Package {
     pub reporting_date: String,
@@ -128,6 +180,8 @@ pub struct Package {
     pub form_contributions: BTreeMap<String, Vec<FormContribution>>,
     pub optional_inputs: BTreeMap<String, BTreeMap<String, Q>>,
     pub certificates: Vec<Certificate>,
+    /// Signed overlays on lodged cells.
+    pub overlays: Vec<Overlay>,
     pub allocation_slices: Vec<AllocationSlice>,
     /// (subject, attribute, assumed, reason)
     pub assumptions: Vec<(String, String, String, String)>,
@@ -294,9 +348,19 @@ fn inputs_match(p: &Package) -> Vec<String> {
         Ok(w) => w,
         Err(e) => return vec![e],
     };
-    let mut out = compare_inputs(&want, &p.lcr_inputs);
+    let overlay = |form: &str, mut m: BTreeMap<String, Q>| {
+        for o in p.overlays.iter().filter(|o| o.form == form) {
+            *m.entry(o.cell.clone()).or_default() += o.amount.clone();
+        }
+        m
+    };
+    let mut out = compare_inputs(&overlay("ARF 210.1A", want), &p.lcr_inputs);
     if let Some(aud) = p.optional_inputs.get("ARF 210.1B") {
-        out.extend(compare_inputs(&derive_aud_inputs(&p.parts, &p.rates), aud).into_iter().map(|e| format!("ARF 210.1B {e}")));
+        out.extend(
+            compare_inputs(&overlay("ARF 210.1B", derive_aud_inputs(&p.parts, &p.rates)), aud)
+                .into_iter()
+                .map(|e| format!("ARF 210.1B {e}")),
+        );
     }
     for (code, parts) in &p.form_contributions {
         let lodged = if code == "ARF 210.6" { Some(&p.nsfr_inputs) } else { p.optional_inputs.get(code) };
@@ -317,7 +381,42 @@ fn inputs_match(p: &Package) -> Vec<String> {
         {
             out.push(format!("{code}: invalid contribution cell: {e}"));
         }
-        out.extend(compare_inputs(&want, lodged).into_iter().map(|e| format!("{code} {e}")));
+        out.extend(compare_inputs(&overlay(code, want), lodged).into_iter().map(|e| format!("{code} {e}")));
+    }
+    out
+}
+
+/// Every overlay: signed by its approver, in force at the reporting date,
+/// a discretion citing its APRA instrument, on an input cell of its form.
+fn overlay_checks(p: &Package, keys: &BTreeMap<String, Vec<u8>>) -> Vec<String> {
+    let mut out = Vec::new();
+    let day = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok();
+    let rd = day(&p.reporting_date);
+    let mut seen = BTreeSet::new();
+    for o in &p.overlays {
+        if !seen.insert(&o.id) {
+            out.push(format!("{}: duplicate overlay id", o.id));
+        }
+        match keys.get(&o.approver) {
+            None => out.push(format!("{}: no key for approver {}", o.id, o.approver)),
+            Some(k) if sign(o, k) != o.signature => out.push(format!("{}: signature does not verify", o.id)),
+            _ => {}
+        }
+        if o.kind == OverlayKind::ApraDiscretion && o.apra_instrument.as_deref().is_none_or(|s| s.trim().is_empty()) {
+            out.push(format!("{}: an APRA discretion must cite its instrument", o.id));
+        }
+        match (day(&o.effective), day(&o.expiry), rd) {
+            (Some(e), Some(x), Some(r)) if e <= r && r <= x => {}
+            (Some(_), Some(x), Some(r)) if r > x => out.push(format!("{}: expired on {x}", o.id)),
+            (Some(e), Some(_), Some(r)) if r < e => out.push(format!("{}: not in force until {e}", o.id)),
+            _ => out.push(format!("{}: invalid dates", o.id)),
+        }
+        let input = arf210::form(&o.form).is_some_and(|f| {
+            f.resolve(&o.cell).is_ok_and(|r| matches!(f.cell(&r), Some(prudence_core::Cell::Input { .. })))
+        });
+        if !input {
+            out.push(format!("{}: {} {} is not an input cell", o.id, o.form, o.cell));
+        }
     }
     out
 }
@@ -610,12 +709,12 @@ fn coverage_requirements(p: &Package) -> Vec<String> {
 
 /// Full-evidence gate: omission of coverage is an error, never a silent downgrade.
 pub fn check_complete(p: &Package) -> Report {
-    check_with_coverage(p, true)
+    check_with_coverage(p, true, &BTreeMap::new())
 }
 
 /// Compatibility diagnostics for packages with partial evidence.
 pub fn check(p: &Package) -> Report {
-    check_with_coverage(p, false)
+    check_with_coverage(p, false, &BTreeMap::new())
 }
 
 fn cross_coverage(p: &Package) -> Vec<Value> {
@@ -649,7 +748,12 @@ fn cross_coverage(p: &Package) -> Vec<Value> {
 }
 
 /// Run every check; emit the bundle only if all pass.
-fn check_with_coverage(p: &Package, complete: bool) -> Report {
+/// The full gate with the approvers' overlay signing keys.
+pub fn check_signed(p: &Package, keys: &BTreeMap<String, Vec<u8>>) -> Report {
+    check_with_coverage(p, true, keys)
+}
+
+fn check_with_coverage(p: &Package, complete: bool, keys: &BTreeMap<String, Vec<u8>>) -> Report {
     let mut warnings = vec!["Verification is scoped: source classifications and returns without contribution evidence are not verified".into()];
     let mut checks: Vec<(&'static str, Vec<String>)> = vec![
         ("gl tie-out", gl_tie_out(p)),
@@ -660,6 +764,7 @@ fn check_with_coverage(p: &Package, complete: bool) -> Report {
         ("allocation bindings", allocation_bindings(p)),
         ("evidence integrity", evidence_checks(p)),
         ("reporting context", context_checks(p)),
+        ("overlays", overlay_checks(p, keys)),
     ];
     if complete {
         checks.push(("required coverage", coverage_requirements(p)));
@@ -801,6 +906,11 @@ fn bundle(p: &Package, lcr: &Evaluation, r: &Report, complete: bool) -> Value {
         "specs": specs,
         "certificates": certs,
         "assumptions": { "count": assumptions.len(), "sha256": sha256::hex(assumptions_text.as_bytes()) },
+        "overlays": p.overlays.iter().map(|o| json!({
+            "id": o.id, "kind": format!("{:?}", o.kind), "form": o.form, "cell": o.cell, "amount": o.amount.to_string(),
+            "apra_instrument": o.apra_instrument, "approver": o.approver, "effective": o.effective, "expiry": o.expiry,
+            "signature": o.signature,
+        })).collect::<Vec<_>>(),
         "returns": {
             "ARF 210.1A": hash_map(&p.lcr_inputs),
             "ARF 210.6": hash_map(&p.nsfr_inputs),

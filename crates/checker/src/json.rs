@@ -23,7 +23,18 @@ fn qmap(m: &BTreeMap<String, Q>) -> Value {
 }
 
 pub fn to_json(p: &Package) -> Value {
-    json!({
+    let overlays: Vec<Value> = p
+        .overlays
+        .iter()
+        .map(|o| {
+            json!({
+                "id": o.id, "kind": format!("{:?}", o.kind), "form": o.form, "cell": o.cell, "amount": q(&o.amount),
+                "apra_instrument": o.apra_instrument, "reason": o.reason, "approver": o.approver,
+                "effective": o.effective, "expiry": o.expiry, "signature": o.signature,
+            })
+        })
+        .collect();
+    let mut v = json!({
         "reporting_date": p.reporting_date,
         "contexts": p.contexts.iter().map(|(code, c)| (code.clone(), json!({
             "entity": c.entity, "reporting_date": c.reporting_date, "consolidation": c.consolidation, "regime": c.regime
@@ -67,7 +78,9 @@ pub fn to_json(p: &Package) -> Value {
         })).collect::<Vec<_>>(),
         "assumptions": p.assumptions.iter().map(|(a, b, c, d)| json!([a, b, c, d])).collect::<Vec<_>>(),
         "specs": p.specs.iter().map(|(path, src)| json!({ "path": path, "source": src })).collect::<Vec<_>>(),
-    })
+    });
+    v["overlays"] = Value::Array(overlays);
+    v
 }
 
 type R<T> = Result<T, String>;
@@ -192,6 +205,31 @@ pub fn from_json(v: &Value) -> R<Package> {
                 .ok_or("optional_inputs: expected an object")?
                 .iter()
                 .map(|(k, v)| Ok((k.clone(), rmap(v)?)))
+                .collect::<R<_>>()?,
+        },
+        overlays: match v.get("overlays") {
+            None => Vec::new(),
+            Some(o) => arr(o)?
+                .iter()
+                .map(|o| {
+                    Ok(crate::Overlay {
+                        id: s(get(o, "id")?)?,
+                        kind: match s(get(o, "kind")?)?.as_str() {
+                            "ApraDiscretion" => crate::OverlayKind::ApraDiscretion,
+                            "DataPatch" => crate::OverlayKind::DataPatch,
+                            k => return Err(format!("unknown overlay kind {k}")),
+                        },
+                        form: s(get(o, "form")?)?,
+                        cell: s(get(o, "cell")?)?,
+                        amount: rq(get(o, "amount")?)?,
+                        apra_instrument: get(o, "apra_instrument")?.as_str().map(str::to_string),
+                        reason: s(get(o, "reason")?)?,
+                        approver: s(get(o, "approver")?)?,
+                        effective: s(get(o, "effective")?)?,
+                        expiry: s(get(o, "expiry")?)?,
+                        signature: s(get(o, "signature")?)?,
+                    })
+                })
                 .collect::<R<_>>()?,
         },
         certificates: arr(get(v, "certificates")?)?

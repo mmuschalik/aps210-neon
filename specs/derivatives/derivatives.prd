@@ -4,6 +4,7 @@
 
 @standard("APS 210", version: "2025-07-01", clause: "Att A Table 3 and footnote 5 (netting); Att C paras 9, 27-28, 36(a)")
 @reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 13, 21.1 (Instructions pp. 50-52); ARF 210.6 items 13, 40-42")
+@effective(from: "2025-07-01")
 module Derivatives(jurisdiction: AU_APRA) {
 
   param reporting_date : Date

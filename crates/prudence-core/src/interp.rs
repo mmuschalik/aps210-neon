@@ -236,6 +236,34 @@ impl<'a> Interp<'a> {
                 it.params.insert(d.name.clone(), v);
             }
         }
+        // `@effective(from: "YYYY-MM-DD", to: "YYYY-MM-DD")`: the rules are
+        // in force only for reporting dates in that period (design 4.A.6).
+        if let Some(a) = module.anns.iter().find(|a| a.name == "effective")
+            && let Some(Val::Date(rd)) = it.params.get("reporting_date")
+        {
+            let date = |n: &str| -> R<Option<i64>> {
+                match a.args.iter().find(|x| x.name.as_deref() == Some(n)) {
+                    None => Ok(None),
+                    Some(Arg { value: Expr::Str(s, _), .. }) => {
+                        let p: Vec<i64> = s.split('-').map(|x| x.parse().map_err(|_| format!("@effective {n}: {s}"))).collect::<R<_>>()?;
+                        match p.as_slice() {
+                            [y, m, d] => Ok(Some(crate::date::days_from_civil(*y, *m as u32, *d as u32))),
+                            _ => Err(format!("@effective {n}: {s}")),
+                        }
+                    }
+                    Some(_) => Err(format!("@effective {n} must be a date string")),
+                }
+            };
+            let (from, to) = (date("from")?, date("to")?);
+            if from.is_some_and(|f| *rd < f) || to.is_some_and(|t| *rd > t) {
+                return Err(format!(
+                    "module {} is not in force at the reporting date (@effective from {:?} to {:?})",
+                    module.name,
+                    from.map(crate::date::civil_from_days),
+                    to.map(crate::date::civil_from_days)
+                ));
+            }
+        }
         Ok(it)
     }
 

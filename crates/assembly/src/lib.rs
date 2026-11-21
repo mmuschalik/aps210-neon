@@ -179,7 +179,7 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
     let mut nsfr: BTreeMap<String, Q> = BTreeMap::new();
     let mut nsfr_parts = Vec::new();
     let mut nsfr_add = |source: &str, item: &str, col: &str, q: &Q| {
-        let k = if col == "amount" { item.to_string() } else { format!("{item}:{col}") };
+        let k = nsfr_key(item, col);
         nsfr_parts.push(checker::FormContribution {
             source: source.into(),
             cell: k.clone(),
@@ -222,7 +222,7 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
                 amount: s.amount.amount().clone(),
                 covered: s.covered,
                 lcr_item: s.lcr_item.map(str::to_string),
-                nsfr_cell: format!("{}:{}", s.nsfr_item, s.nsfr_bucket),
+                nsfr_cell: nsfr_key(s.nsfr_item, s.nsfr_bucket),
             });
         }
         slices.push((s.account_id.clone(), s.amount.amount().clone()));
@@ -246,7 +246,7 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
             amount: s.amount.clone(),
             covered: s.covered,
             lcr_item: s.lcr_item.clone(),
-            nsfr_cell: format!("{}:{}", s.nsfr.0, s.nsfr.1),
+            nsfr_cell: nsfr_key(&s.nsfr.0, &s.nsfr.1),
         });
         slices.push((s.account.clone(), s.amount.clone()));
         nsfr_add(&s.account, &s.nsfr.0, &s.nsfr.1, &s.amount);
@@ -376,6 +376,26 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
     })
 }
 
+/// Apply signed overlays to the LCR and NSFR inputs before any dependent
+/// return (ARF 210.5) is derived from them; the overlays go into the package
+/// so the gate can verify them.
+pub fn apply_overlays(ret: &mut Return, overlays: &[checker::Overlay]) {
+    for o in overlays {
+        let target = match o.form.as_str() {
+            "ARF 210.1A" => &mut ret.inputs,
+            "ARF 210.6" => &mut ret.nsfr_inputs,
+            _ => continue,
+        };
+        *target.entry(o.cell.clone()).or_default() += o.amount.clone();
+    }
+}
+
+/// The ARF 210.6 input key of an (item, column) pair: a single-column row
+/// (`amount`) is keyed by the bare item, as everywhere else.
+fn nsfr_key(item: &str, col: &str) -> String {
+    if col == "amount" { item.to_string() } else { format!("{item}:{col}") }
+}
+
 /// The checker's view of a return: plain data, nothing it has to trust.
 pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker::Package {
     let stream = |s: Stream| match s {
@@ -425,6 +445,7 @@ pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker:
         lcr_inputs: ret.inputs.clone(),
         nsfr_inputs: ret.nsfr_inputs.clone(),
         certificates: ret.certificates.clone(),
+        overlays: Vec::new(),
         allocation_slices: ret.allocation_slices.clone(),
         assumptions: ret
             .assumptions

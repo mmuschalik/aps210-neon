@@ -5,6 +5,7 @@
 @standard("APS 210", version: "2025-07-01", clause: "Att A paras 44-50; Table 3; Att C para 14(b)")
 @guidance("APG 210", version: "2025-07", clause: "paras 132-140")
 @reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 9.2-9.5; ARF 210.6 items 8-12")
+@effective(from: "2025-07-01")
 module WholesaleDeposits(jurisdiction: AU_APRA) {
 
   param reporting_date : Date

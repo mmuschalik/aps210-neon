@@ -351,7 +351,7 @@ pub fn build(bank: &Bank, ret: &Return, rd: NaiveDate, mode: Mode, regime: &str,
         }
     }
     plan.0.extend(plan_forecasts(extras));
-    let daily = Acc(if regime == "mlh" { daily_mlh(bank, rd, mode)? } else { daily_lcr(bank, rd, mode, extras)? });
+    let daily = Acc(if regime == "mlh" { daily_mlh(bank, rd, mode)? } else { daily_lcr(bank, ret, rd, mode, extras)? });
     let mut out = vec![
         Built { code: "ARF 210.3.1", inputs: a.inputs(), contributions: a.0 },
         Built { code: "ARF 210.3.2", inputs: l.inputs(), contributions: l.0 },
@@ -447,12 +447,16 @@ fn daily_bucket(rd: NaiveDate, d: Option<NaiveDate>) -> Option<&'static str> {
 
 /// LCR figures of one bank as at one date: (HQLA, RBNZ+ALA, LCR %, AUD LCR %).
 fn lcr_figures(bank: &Bank, date: NaiveDate, mode: Mode) -> Result<[Option<Q>; 4], String> {
-    let ret = crate::lcr_return(bank, date, mode)?;
+    figures_of(&crate::lcr_return(bank, date, mode)?)
+}
+
+/// The same figures from a return as lodged (with any overlays applied).
+fn figures_of(ret: &Return) -> Result<[Option<Q>; 4], String> {
     let eval = |form: &'static prudence_core::Form, m: &BTreeMap<String, Q>| {
         evaluate(form, m.iter().map(|(k, v)| (k.as_str(), v.clone())), Missing::Zero).map_err(|e| format!("{e:?}"))
     };
     let all = eval(arf210::lcr_all(), &ret.inputs)?;
-    let aud = eval(arf210::lcr_aud(), &checker::derive_aud_inputs(&crate::checker_parts(&ret), &BTreeMap::new()))?;
+    let aud = eval(arf210::lcr_aud(), &checker::derive_aud_inputs(&crate::checker_parts(ret), &BTreeMap::new()))?;
     let g = |e: &prudence_core::Evaluation, k: &str| e.get(k).num().cloned();
     Ok([g(&all, "25:value"), g(&all, "26:value"), g(&all, "30:value"), g(&aud, "30:value")])
 }
@@ -461,7 +465,7 @@ fn lcr_figures(bank: &Bank, date: NaiveDate, mode: Mode) -> Result<[Option<Q>; 4
 /// business days before, funding balances, net loan principal outflow and
 /// collateral flows over the five days, the LCRs over five business days,
 /// and funding maturities over six months.
-pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Result<Vec<checker::FormContribution>, String> {
+pub fn daily_lcr(bank: &Bank, ret: &Return, rd: NaiveDate, mode: Mode, extras: &Extras) -> Result<Vec<checker::FormContribution>, String> {
     let mut a = Acc::default();
     let lit = |a: &mut Acc, source: &str, cell: &str, q: Option<Q>| {
         if let Some(q) = q
@@ -470,7 +474,7 @@ pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Res
             a.0.push(checker::FormContribution { source: source.into(), cell: cell.into(), amount: q });
         }
     };
-    let [hqla, ala, lcr, lcr_aud] = lcr_figures(bank, rd, mode)?;
+    let [hqla, ala, lcr, lcr_aud] = figures_of(ret)?;
     lit(&mut a, "ARF 210.1A", "1.1:balance", hqla);
     lit(&mut a, "ARF 210.1A", "1.4:balance", ala);
     lit(&mut a, "ARF 210.1A", "5.2:day1", lcr);

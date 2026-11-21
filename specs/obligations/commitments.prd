@@ -3,6 +3,7 @@
 
 @standard("APS 210", version: "2025-07-01", clause: "Att A paras 51-53; Table 3 (committed facilities, other contingent funding obligations)")
 @reporting("ARS 210.0", version: "2023-03-31", clause: "ARF 210.1A items 14, 15, 16")
+@effective(from: "2025-07-01")
 module Commitments(jurisdiction: AU_APRA) {
 
   param reporting_date : Date

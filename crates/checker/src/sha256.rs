@@ -12,6 +12,20 @@ const K: [u32; 64] = [
 
 /// Lower-case hex digest.
 pub fn hex(data: &[u8]) -> String {
+    digest(data).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// HMAC-SHA256 (RFC 2104), lower-case hex.
+pub fn hmac_hex(key: &[u8], msg: &[u8]) -> String {
+    let mut k = if key.len() > 64 { digest(key).to_vec() } else { key.to_vec() };
+    k.resize(64, 0);
+    let inner: Vec<u8> = k.iter().map(|b| b ^ 0x36).chain(msg.iter().copied()).collect();
+    let outer: Vec<u8> = k.iter().map(|b| b ^ 0x5c).chain(digest(&inner)).collect();
+    hex(&outer)
+}
+
+/// The 32-byte digest.
+pub fn digest(data: &[u8]) -> [u8; 32] {
     let mut h: [u32; 8] =
         [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
     let mut msg = data.to_vec();
@@ -51,12 +65,25 @@ pub fn hex(data: &[u8]) -> String {
             *x = x.wrapping_add(y);
         }
     }
-    h.iter().map(|x| format!("{x:08x}")).collect()
+    let mut out = [0u8; 32];
+    for (i, x) in h.iter().enumerate() {
+        out[4 * i..4 * i + 4].copy_from_slice(&x.to_be_bytes());
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::hex;
+
+    /// RFC 4231 test case 2.
+    #[test]
+    fn hmac_vector() {
+        assert_eq!(
+            super::hmac_hex(b"Jefe", b"what do ya want for nothing?"),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+    }
 
     #[test]
     fn fips_180_vectors() {
