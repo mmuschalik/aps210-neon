@@ -11,6 +11,7 @@
 //! therefore states the tie-out to items 18 and 23 as a warning, not an error.
 
 pub mod maturity;
+pub mod steering;
 
 use std::collections::BTreeMap;
 
@@ -95,7 +96,7 @@ pub fn assemble(parts: &[Part], rates: &BTreeMap<String, Q>) -> Result<BTreeMap<
 }
 
 /// Everything one ADI reports, by module.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Bank {
     pub retail: deposits::Book,
     pub wholesale_customers: Vec<deposits::wholesale::Customer>,
@@ -154,6 +155,13 @@ pub struct Return {
 
 /// Run every module and assemble ARF 210.1A.
 pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<Return, String> {
+    lcr_return_modes(bank, reporting_date, &|_| mode)
+}
+
+/// As `lcr_return`, with each module's unknowns resolved in its own mode
+/// (module names: retail, wholesale, secured, obligations, loans, funding,
+/// derivatives) - for attributing the cost of missing data.
+pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&str) -> Mode) -> Result<Return, String> {
     let ccy = |id: &str| bank.currency.get(id).cloned().unwrap_or_else(|| "AUD".into());
     let mut parts = Vec::new();
     let mut assumptions = Vec::new();
@@ -198,7 +206,7 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     let c = deposits::classify(
         &bank.retail,
         &deposits::Params {
-            mode,
+            mode: modes("retail"),
             ..deposits::Params::new(reporting_date)
         },
     )
@@ -227,7 +235,7 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     for a in &c.assumptions {
         assumptions.push(("retail", a.subject.clone(), a.attribute.to_string(), a.assumed.clone(), a.reason.clone()));
     }
-    let (ws, allocs) = deposits::wholesale::run_with_certificates(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, mode)?;
+    let (ws, allocs) = deposits::wholesale::run_with_certificates(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, modes("wholesale"))?;
     certify("wholesale", allocs);
     for d in &bank.wholesale_deposits {
         records.push((d.id.clone(), "wholesale", d.balance.clone(), true));
@@ -253,7 +261,7 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         let kind = if r.leg == secured::Leg::Funding { "repo-funding" } else { "repo-lending" };
         records.push((r.id.clone(), kind, r.cash.clone(), false));
     }
-    let r = secured::run(&bank.holdings, &bank.repos, reporting_date, mode, bank.has_clf)?;
+    let r = secured::run(&bank.holdings, &bank.repos, reporting_date, modes("secured"), bank.has_clf)?;
     for (id, i, q) in r.parts {
         push("secured", &id, &i, q, ccy(&id), Stream::Both);
     }
@@ -263,12 +271,12 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         }
     };
     keep("secured", r.assumptions);
-    let r = obligations::run(&bank.commitments, reporting_date, mode)?;
+    let r = obligations::run(&bank.commitments, reporting_date, modes("obligations"))?;
     for (id, i, q) in r.parts {
         push("obligations", &id, &i, q, ccy(&id), Stream::Both);
     }
     keep("obligations", r.assumptions);
-    let r = loans::run_all(&bank.loans, &bank.other_inflows, reporting_date, mode)?;
+    let r = loans::run_all(&bank.loans, &bank.other_inflows, reporting_date, modes("loans"))?;
     for l in &bank.loans {
         records.push((l.id.clone(), "loan", l.balance.clone(), true));
     }
@@ -283,7 +291,7 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         push("loans", &id, &i, q, ccy(&id), Stream::Both);
     }
     keep("loans", r.assumptions);
-    let r = funding::run(&bank.funding, reporting_date, mode)?;
+    let r = funding::run(&bank.funding, reporting_date, modes("funding"))?;
     for x in &bank.funding.securities {
         records.push((x.id.clone(), "issued", x.amount.clone(), false));
     }
@@ -301,7 +309,7 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         }
     }
     keep("funding", r.assumptions);
-    let r = derivatives::run(&bank.derivatives, reporting_date, reporting_date, mode)?;
+    let r = derivatives::run(&bank.derivatives, reporting_date, reporting_date, modes("derivatives"))?;
     for (k, t) in bank.derivatives.trades.iter().enumerate() {
         records.push((format!("trade{k}"), "derivative", t.mtm.clone(), false));
     }
@@ -316,9 +324,10 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         push("derivatives", &id, &i, q, c, Stream::Split);
     }
     keep("derivatives", r.assumptions);
-    let resolved_bool = |v: &prudence_core::uncertain::Uncertain<bool>| v.known().copied().unwrap_or(mode == Mode::Optimistic);
     for cert in &mut certificates {
         let wholesale = cert.name.starts_with("wholesale/");
+        let mode = modes(if wholesale { "wholesale" } else { "retail" });
+        let resolved_bool = |v: &prudence_core::uncertain::Uncertain<bool>| v.known().copied().unwrap_or(mode == Mode::Optimistic);
         let mut t = checker::FcsTerms {
             wholesale,
             eligible: vec![],

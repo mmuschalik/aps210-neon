@@ -568,3 +568,61 @@ fn mlh_adi_returns() {
     q.optional_inputs.get_mut("ARF 210.5").unwrap().insert("1.1:balance".into(), Q::from_integer(1.into()));
     assert!(checker::check_complete(&q).failures().iter().any(|f| f.contains("210.5:1.1=210.2")));
 }
+
+// ---------------------------------------------------------------- steering
+
+use assembly::steering::*;
+
+#[test]
+fn stress_scenarios_transform_the_data_not_the_rules() {
+    let b = bank(false);
+    let shock = Scenario { name: "HQLA1 -10%".into(), price_shock: [Q::new(1.into(), 10.into()), Q::default(), Q::default()], ..Scenario::default() };
+    let freeze = Scenario { name: "wholesale freeze".into(), freeze_wholesale_rollover: true, ..Scenario::default() };
+    let calls = Scenario { name: "notice deposits called".into(), call_notice_deposits: true, ..Scenario::default() };
+    let roll = Scenario { name: "10 days on".into(), roll_forward_days: 10, ..Scenario::default() };
+    let out = stress(&b, rd(), &[shock, freeze, calls, roll]).unwrap();
+    let base = &out[0].1;
+    // The 500m Commonwealth bond loses 50m.
+    assert_eq!(&base.liquid_assets - &out[1].1.liquid_assets, Q::from_integer(50.into()));
+    // The USD corporate deposit (40m, not insured) runs off at 100% instead of
+    // 40%: outflows rise by 24m; net outflows by less, as the 75% inflow cap
+    // rises with outflows.
+    assert_eq!(&out[2].1.outflows - &base.outflows, Q::from_integer(24.into()));
+    assert!(out[2].1.net_outflows > base.net_outflows && &out[2].1.net_outflows - &base.net_outflows <= Q::from_integer(24.into()));
+    assert!(out[3].1.net_outflows >= base.net_outflows);
+    assert!(out.iter().all(|(_, l)| l.lcr.is_some()));
+}
+
+#[test]
+fn the_cost_of_missing_data_by_module() {
+    let mut b = bank(false);
+    b.wholesale_deposits[0].fcs_eligible = Uncertain::unknown("customer record incomplete");
+    let carry = Q::new(1.into(), 100.into());
+    let (reported, best, drags) = data_quality(&b, rd(), &carry).unwrap();
+    assert!(best.surplus() >= reported.surplus());
+    let retail = drags.iter().find(|d| d.module == "retail").unwrap();
+    assert!(retail.unknowns > 0);
+    for d in &drags {
+        assert!(d.liquid_assets_freed >= Q::default(), "{d:?}");
+        assert_eq!(d.annual_cost, &d.liquid_assets_freed * &carry);
+    }
+    assert!(drags.windows(2).all(|w| w[0].liquid_assets_freed >= w[1].liquid_assets_freed), "largest first");
+}
+
+#[test]
+fn marginal_liquidity_costs_follow_the_caps() {
+    let q = |n: i64| Q::from_integer(n.into());
+    let mut inputs: BTreeMap<String, Q> = BTreeMap::new();
+    inputs.insert("1.1".into(), q(200)); // HQLA1
+    inputs.insert("10.1".into(), q(100)); // outflows at 100%
+    inputs.insert("20.5".into(), q(100)); // inflows at 100%: capped at 75
+    let m = marginals(&inputs, &["10.1", "1.1", "20.5"]).unwrap();
+    // Another million of outflows: net outflows rise by 1 - the cap moves
+    // with outflows, so inflows recognised rise by 0.75 - net 0.25.
+    assert_eq!(m[0].net_outflows, Q::new(1.into(), 4.into()));
+    // Another million of HQLA1 frees a million.
+    assert_eq!(m[1].liquidity_cost, q(-1));
+    // Inflows beyond the cap are worth nothing.
+    assert_eq!(m[2].net_outflows, Q::default());
+    assert_eq!(m[2].liquidity_cost, Q::default());
+}

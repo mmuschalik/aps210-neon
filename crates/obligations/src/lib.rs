@@ -77,7 +77,7 @@ pub struct ContingentObligation {
     pub amount: Q,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Book {
     pub facilities: Vec<Facility>,
     pub commitments: Vec<LendingCommitment>,
