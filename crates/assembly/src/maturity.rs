@@ -6,9 +6,9 @@
 //! from earlier daily snapshots and the ARF 210.4 forecasts from the funding
 //! plan. Each cell comes with per-source contribution evidence.
 //!
-//! Not modelled (zero): capital, FX transaction legs, securitisation and
-//! covered-bond funding, issued debt securities, deposits placed with other
-//! ADIs, and the withdrawal-notification counts of ARF 210.5 item 8.
+//! Not modelled (zero): early repayment requests on wholesale funding (ARF
+//! 210.5 items 8.2-8.3), and ARF 210.5 items 3.2-3.5 (facility drawdowns
+//! over the five days), which need event data the modules do not keep.
 
 use std::collections::BTreeMap;
 
@@ -201,6 +201,21 @@ fn assets(bank: &Bank, ret: &Return, rd: NaiveDate, mode: Mode) -> Result<Acc, S
             }
         }
     }
+    // Deposits placed with other ADIs (on call: at call).
+    for x in &bank.funding.placements {
+        let item = if x.adi == funding::AdiType::ForeignAdi { "6.2.4" } else { "6.1.4" };
+        let col = x.maturity.map(|d| bucket(rd, Some(d))).unwrap_or("at_call");
+        put(&mut a, &x.id, item, col, &x.amount);
+    }
+    // FX transaction inflow legs by currency, gross (ARS p.90: item 8).
+    for f in bank.derivatives.flows.iter().filter(|f| f.fx_principal && f.amount > Q::default()) {
+        let col = bucket(rd, Some(f.date));
+        a.add(&f.set, "8", col, &f.amount);
+        let row = memo_row(&f.currency);
+        if row < 8 {
+            a.add(&f.set, &format!("8.{row}"), col, &f.amount);
+        }
+    }
     // Other receivables.
     for x in &bank.other_inflows.receivables {
         put(&mut a, &x.id, "7", bucket(rd, Some(x.due)), &x.amount);
@@ -252,6 +267,48 @@ fn liabilities(bank: &Bank, rd: NaiveDate) -> Acc {
         let col = d.maturity.map(|m| bucket(rd, Some(m))).unwrap_or("at_call");
         put(&mut a, &d.id, item, col, &d.balance);
     }
+    // Debt securities issued; covered bonds and securitisation as secured funding.
+    for x in &bank.funding.securities {
+        use funding::SecurityKind::*;
+        let item = match (x.kind, x.offshore) {
+            (ShortTerm, false) => "2.1.1",
+            (LongTerm, false) => "2.1.2",
+            (EuroCommercialPaper, _) => "2.2.1",
+            (UsCommercialPaper, _) => "2.2.2",
+            (ShortTerm, true) => "2.2.3",
+            (LongTerm, true) => "2.2.4",
+            (CoveredBond, false) => "3.1.2",
+            (ShortTermSecuritisation, false) => "3.1.3",
+            (LongTermSecuritisation, false) => "3.1.4",
+            (CoveredBond, true) => "3.2.2",
+            (ShortTermSecuritisation, true) => "3.2.3",
+            (LongTermSecuritisation, true) => "3.2.4",
+        };
+        let col = bucket(rd, Some(x.maturity));
+        put(&mut a, &x.id, item, col, &x.amount);
+        if x.kind == LongTermSecuritisation {
+            a.add(&x.id, "9.7", col, &x.amount);
+        }
+    }
+    // Capital: no contractual maturity -> column 14 (ARS p.107).
+    for x in &bank.funding.capital {
+        let item = match x.tier {
+            funding::Tier::CET1 => "6.1",
+            funding::Tier::AT1 => "6.2",
+            funding::Tier::T2 => "6.3",
+        };
+        put(&mut a, &x.id, item, bucket(rd, x.maturity), &x.amount);
+    }
+    // FX transaction outflow legs by currency, gross (item 7).
+    for f in bank.derivatives.flows.iter().filter(|f| f.fx_principal && f.amount < Q::default()) {
+        let col = bucket(rd, Some(f.date));
+        let q = -f.amount.clone();
+        a.add(&f.set, "7", col, &q);
+        let row = memo_row(&f.currency);
+        if row < 8 {
+            a.add(&f.set, &format!("7.{row}"), col, &q);
+        }
+    }
     // Repurchase agreements.
     for r in bank.repos.iter().filter(|r| r.leg == secured::Leg::Funding) {
         let col = bucket(rd, Some(r.maturity));
@@ -295,7 +352,7 @@ pub fn build(bank: &Bank, ret: &Return, rd: NaiveDate, mode: Mode, regime: &str,
         }
     }
     plan.0.extend(plan_forecasts(extras));
-    let daily = Acc(if regime == "mlh" { daily_mlh(bank) } else { daily_lcr(bank, rd, mode, extras)? });
+    let daily = Acc(if regime == "mlh" { daily_mlh(bank, rd, mode)? } else { daily_lcr(bank, rd, mode, extras)? });
     let mut out = vec![
         Built { code: "ARF 210.3.1", inputs: a.inputs(), contributions: a.0 },
         Built { code: "ARF 210.3.2", inputs: l.inputs(), contributions: l.0 },
@@ -303,7 +360,7 @@ pub fn build(bank: &Bank, ret: &Return, rd: NaiveDate, mode: Mode, regime: &str,
         Built { code: "ARF 210.5", inputs: daily.inputs(), contributions: daily.0 },
     ];
     if regime == "mlh" {
-        let m = Acc(mlh(bank));
+        let m = Acc(mlh(bank, rd, mode)?);
         out.push(Built { code: "ARF 210.2", inputs: m.inputs(), contributions: m.0 });
     }
     Ok(out)
@@ -348,6 +405,15 @@ fn funding_balances(bank: &Bank) -> Vec<(String, &'static str, Q)> {
             _ => "2.2",
         };
         out.push((d.id.clone(), row, d.balance.clone()));
+    }
+    // Wholesale funding not included above: short-term (2.4) and other (2.5).
+    for x in &bank.funding.securities {
+        use funding::SecurityKind::*;
+        let row = if matches!(x.kind, ShortTerm | EuroCommercialPaper | UsCommercialPaper) { "2.4" } else { "2.5" };
+        out.push((x.id.clone(), row, x.amount.clone()));
+        if x.offshore {
+            out.push((x.id.clone(), if row == "2.4" { "2.4.1" } else { "2.5.1" }, x.amount.clone()));
+        }
     }
     out
 }
@@ -432,6 +498,43 @@ pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Res
         let now: Q = bank.loans.iter().map(|l| l.balance.clone()).sum();
         let then: Q = prior.loans.iter().map(|l| l.balance.clone()).sum();
         a.add(&src, "3.1", "outflow", &(now - then));
+        // Item 8.1: notices given on minimum notice deposits over the five
+        // days (number and value); the percentage of the average balance of
+        // notice deposits over the five days, when all five days are known.
+        let notice_balance = |b: &Bank| -> Q {
+            b.retail
+                .accounts
+                .iter()
+                .filter(|d| matches!(d.contract, deposits::Contract::Clm { .. }))
+                .map(|d| d.balance.amount().clone())
+                .sum()
+        };
+        let (mut n, mut value) = (0i64, Q::default());
+        for e in bank.retail.ledger.as_of(rd, rd) {
+            if let deposits::EventKind::NoticeGiven { account_id, .. } = &e.kind
+                && *pd < e.valid
+                && let Some(d) = bank.retail.accounts.iter().find(|d| &d.id == account_id)
+            {
+                n += 1;
+                value += d.balance.amount().clone();
+            }
+        }
+        if n > 0 {
+            let src = format!("notice events {pd}..{rd}");
+            a.0.push(checker::FormContribution { source: src.clone(), cell: "8.1:number".into(), amount: Q::from_integer(n.into()) });
+            a.add(&src, "8.1", "amount", &value);
+            if extras.recent.len() >= 4 {
+                let days: Vec<Q> = std::iter::once(notice_balance(bank)).chain(extras.recent.iter().take(4).map(|(_, b)| notice_balance(b))).collect();
+                let avg = days.iter().cloned().sum::<Q>() / Q::from_integer(5.into());
+                if avg != Q::default() {
+                    a.0.push(checker::FormContribution {
+                        source: src,
+                        cell: "8.1:amount_pct".into(),
+                        amount: Q::from_integer(100.into()) * &value / avg,
+                    });
+                }
+            }
+        }
         // Item 4: collateral realised over the five days, as variation margin
         // when initial and variation cannot be told apart (ARS p.130);
         // outflows positive, inflows negative.
@@ -473,13 +576,27 @@ pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Res
             a.add(&r.id, "6.5", col, &r.cash);
         }
     }
+    for x in &bank.funding.securities {
+        use funding::SecurityKind::*;
+        let row = match x.kind {
+            ShortTerm | EuroCommercialPaper | UsCommercialPaper => "6.4",
+            LongTerm => "6.6",
+            _ => "6.5",
+        };
+        if let Some(col) = daily_bucket(rd, Some(x.maturity)) {
+            a.add(&x.id, row, col, &x.amount);
+            if x.offshore {
+                a.add(&x.id, &format!("{row}.1"), col, &x.amount);
+            }
+        }
+    }
     Ok(a.0)
 }
 
 /// ARF 210.2 for an MLH ADI: MLH assets from the holdings, the liability base
 /// from deposits and repurchase agreements, and off-balance sheet irrevocable
 /// commitments from the commitments module.
-pub fn mlh(bank: &Bank) -> Vec<checker::FormContribution> {
+pub fn mlh(bank: &Bank, rd: NaiveDate, mode: Mode) -> Result<Vec<checker::FormContribution>, String> {
     use secured::{AssetKind, Issuer};
     let mut a = Acc::default();
     for h in bank.holdings.iter().filter(|h| !h.encumbered) {
@@ -507,6 +624,15 @@ pub fn mlh(bank: &Bank) -> Vec<checker::FormContribution> {
     for r in bank.repos.iter().filter(|r| r.leg == secured::Leg::Funding) {
         a.add(&r.id, "12.1", "amount", &r.cash);
     }
+    for x in &bank.funding.securities {
+        a.add(&x.id, "12.1", "amount", &x.amount);
+    }
+    // Placements with other ADIs: the spec's ARF 210.2 rows.
+    for (id, form, item, _, q) in funding::run(&bank.funding, rd, mode)?.cells {
+        if form == "ARF 210.2" {
+            a.add(&id, &item, "amount", &q);
+        }
+    }
     for f in bank.commitments.facilities.iter().filter(|f| f.committed || f.mortgage_redraw) {
         a.add(&f.id, if f.mortgage_redraw { "13.6" } else { "13.4" }, "amount", &f.undrawn);
     }
@@ -522,13 +648,13 @@ pub fn mlh(bank: &Bank) -> Vec<checker::FormContribution> {
         };
         a.add(&o.id, row, "amount", &o.amount);
     }
-    a.0
+    Ok(a.0)
 }
 
 /// ARF 210.5 for an MLH ADI: liquid assets as in ARF 210.2 (ARS p.129).
-pub fn daily_mlh(bank: &Bank) -> Vec<checker::FormContribution> {
+pub fn daily_mlh(bank: &Bank, rd: NaiveDate, mode: Mode) -> Result<Vec<checker::FormContribution>, String> {
     let mut out = Vec::new();
-    for c in mlh(bank) {
+    for c in mlh(bank, rd, mode)? {
         let item = c.cell.trim_end_matches(":amount");
         let row = match item {
             "1.1" | "1.3.1" | "2.1" | "2.2" | "3" => "1.1",
@@ -538,7 +664,7 @@ pub fn daily_mlh(bank: &Bank) -> Vec<checker::FormContribution> {
         };
         out.push(checker::FormContribution { source: c.source, cell: format!("{row}:balance"), amount: c.amount });
     }
-    out
+    Ok(out)
 }
 
 /// ARF 210.4 forecast columns from the funding plan.

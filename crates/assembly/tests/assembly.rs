@@ -445,7 +445,9 @@ fn ctx(regime: &str) -> checker::ReportingContext {
 /// from the funding plan, through the strict gate.
 #[test]
 fn daily_history_and_funding_plan() {
-    let mut b = with_ledger(bank(true));
+    let mut b = bank(true);
+    b.funding = funding_book();
+    let mut b = with_ledger(b);
     b.derivatives.sets.push(derivatives::NettingSet { id: "csa".into(), netting_agreement: Some(true), ..Default::default() });
     let paid = rd() - Days::new(2);
     b.derivatives.collateral_flows.push(derivatives::CollateralFlow {
@@ -455,6 +457,15 @@ fn daily_history_and_funding_plan() {
         valid: paid,
         recorded: paid,
     });
+    let notice_on = rd() - Days::new(1);
+    let acct = b.retail.accounts.iter().find(|a| matches!(a.contract, deposits::Contract::Clm { .. })).map(|a| a.id.clone());
+    if let Some(id) = &acct {
+        b.retail.ledger.record(
+            deposits::EventKind::NoticeGiven { account_id: id.clone(), repayment_date: rd() + Days::new(31) },
+            notice_on,
+            notice_on,
+        );
+    }
     let mut prior = bank(true);
     prior.loans[0].balance = m(50); // the loan book grew by 10m over the week
     let extras = assembly::maturity::Extras {
@@ -471,20 +482,56 @@ fn daily_history_and_funding_plan() {
     assert_eq!(daily["3.1:outflow"], Q::from_integer(10.into()));
     assert_eq!(daily["4.3:outflow"], Q::from_integer(7.into()));
     assert_eq!(p.optional_inputs["ARF 210.4"]["9.1.1:m12"], Q::from_integer(55.into()));
+    // Issued paper, capital and placements in the maturity ladders and the daily report.
+    let liab = &p.optional_inputs["ARF 210.3.2"];
+    assert_eq!(liab["2.1.1:d15"], Q::from_integer(25.into()));
+    assert_eq!(liab["6.1:y10plus"], Q::from_integer(300.into()));
+    assert!(p.optional_inputs["ARF 210.3.1"].contains_key("6.1.4:at_call"));
+    // FX legs, gross by currency: the AUD 100m paid, the USD 102m received.
+    assert_eq!(liab["7.1:d7"], Q::from_integer(100.into()));
+    assert_eq!(p.optional_inputs["ARF 210.3.1"]["8.3:d7"], Q::from_integer(102.into()));
+    assert_eq!(daily["2.4:balance"], Q::from_integer(25.into()));
+    assert!(daily.contains_key("6.4:d15"));
+    assert!(acct.is_some(), "the generated book has a notice account");
+    assert_eq!(daily["8.1:number"], Q::from_integer(1.into()));
+    assert!(daily.contains_key("8.1:amount_pct"));
     let rep = checker::check_complete(&p);
     assert!(rep.passed(), "{:?}", rep.failures());
+}
+
+fn funding_book() -> funding::Book {
+    funding::Book {
+        securities: vec![funding::IssuedSecurity {
+            id: "ncd".into(),
+            kind: funding::SecurityKind::ShortTerm,
+            amount: m(25),
+            maturity: rd() + Days::new(12),
+            offshore: false,
+        }],
+        capital: vec![funding::CapitalInstrument { id: "cet1".into(), tier: funding::Tier::CET1, amount: m(300), maturity: None }],
+        placements: vec![funding::Placement {
+            id: "at-major".into(),
+            adi: funding::AdiType::MajorBank,
+            amount: m(15),
+            maturity: None,
+            operational: Uncertain::Known(false),
+        }],
+    }
 }
 
 /// An MLH ADI: ARF 210.2 from the holdings, liabilities and commitments, and
 /// ARF 210.5 tied to it.
 #[test]
 fn mlh_adi_returns() {
-    let b = with_ledger(bank(false));
+    let mut b = bank(false);
+    b.funding = funding_book();
+    let b = with_ledger(b);
     let r = lcr_return(&b, rd(), Mode::Conservative).unwrap();
     let p = package_all(&b, &r, ctx("mlh"), rd(), Mode::Conservative, &assembly::maturity::Extras::default()).unwrap();
     let mlh = &p.optional_inputs["ARF 210.2"];
     assert_eq!(mlh["2.1:amount"], Q::from_integer(500.into())); // the Commonwealth bond
     assert!(mlh["12.1:amount"] > Q::default() && mlh["13.4:amount"] == Q::from_integer(80.into()));
+    assert_eq!(mlh["6.1.1:amount"], Q::from_integer(15.into())); // call deposit with a major bank
     let rep = checker::check_complete(&p);
     assert!(rep.passed(), "{:?}", rep.failures());
     let bundle = rep.bundle.unwrap();

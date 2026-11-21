@@ -199,7 +199,8 @@ impl Resolver {
     fn pat(&mut self, p: &Pat, pos: Option<super::lexer::Pos>) {
         match p {
             Pat::Ctor(name, ps) => {
-                if !self.values.contains(name) {
+                // `Some(x)` destructures an optional value.
+                if name != "Some" && !self.values.contains(name) {
                     let at = pos.map(|p| format!("{p}: ")).unwrap_or_default();
                     self.errors.push(format!("{at}unknown constructor `{name}` in pattern"));
                 }

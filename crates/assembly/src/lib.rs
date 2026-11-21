@@ -108,6 +108,8 @@ pub struct Bank {
     /// Other contractual inflows (21.4) and head office support (21.5).
     pub other_inflows: loans::Other,
     pub derivatives: derivatives::Book,
+    /// Debt securities issued, regulatory capital, placements with other ADIs.
+    pub funding: funding::Book,
     /// Record id -> currency (default AUD).
     pub currency: BTreeMap<String, String>,
     /// The general ledger: account -> balance (AUD).
@@ -126,6 +128,9 @@ pub fn default_account(kind: &str) -> &'static str {
         "repo-lending" => "1300 Reverse repurchase agreements",
         "loan" => "1400 Loans and advances",
         "receivable" => "1600 Other receivables",
+        "placement" => "1700 Deposits with other ADIs",
+        "issued" => "2400 Debt securities issued",
+        "capital" => "3000 Regulatory capital instruments",
         _ => "1500 Derivatives (net mark-to-market)",
     }
 }
@@ -278,6 +283,24 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         push("loans", &id, &i, q, ccy(&id), Stream::Both);
     }
     keep("loans", r.assumptions);
+    let r = funding::run(&bank.funding, reporting_date, mode)?;
+    for x in &bank.funding.securities {
+        records.push((x.id.clone(), "issued", x.amount.clone(), false));
+    }
+    for x in &bank.funding.capital {
+        records.push((x.id.clone(), "capital", x.amount.clone(), false));
+    }
+    for x in &bank.funding.placements {
+        records.push((x.id.clone(), "placement", x.amount.clone(), false));
+    }
+    for (id, form, item, col, q) in &r.cells {
+        match *form {
+            "ARF 210.1A" => push("funding", id, item, q.clone(), ccy(id), Stream::Both),
+            "ARF 210.6" => nsfr_add(id, item, col, q),
+            _ => {}
+        }
+    }
+    keep("funding", r.assumptions);
     let r = derivatives::run(&bank.derivatives, reporting_date, reporting_date, mode)?;
     for (k, t) in bank.derivatives.trades.iter().enumerate() {
         records.push((format!("trade{k}"), "derivative", t.mtm.clone(), false));
@@ -359,6 +382,7 @@ pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker:
         ("specs/obligations/commitments.prd", obligations::SOURCE),
         ("specs/loans/loans.prd", loans::SOURCE),
         ("specs/derivatives/derivatives.prd", derivatives::SOURCE),
+        ("specs/funding/funding.prd", funding::SOURCE),
     ] {
         specs.push((path.into(), src.into()));
     }

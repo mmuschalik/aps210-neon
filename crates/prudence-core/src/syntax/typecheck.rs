@@ -492,6 +492,16 @@ impl<'m> Checker<'m> {
                 ps.iter().zip(ts).flat_map(|(p, t)| self.pat_binds(p, t)).collect()
             }
             (Pat::Tuple(ps), Ty::Unknown) => ps.iter().flat_map(|p| self.pat_binds(p, &Ty::Unknown)).collect(),
+            (Pat::Ctor(c, ps), _) if c == "Some" => match (ps.as_slice(), t) {
+                ([p], Ty::Optional(x)) => self.pat_binds(p, x),
+                // Optional record fields are typed as their value type
+                // (absent = `none`); `Some(x)` binds the value.
+                ([p], other) => self.pat_binds(p, other),
+                _ => {
+                    self.err(None, "`Some(..)` takes one pattern".into());
+                    vec![]
+                }
+            },
             (Pat::Ctor(c, ps), _) => {
                 let fields: Vec<Ty> = if let Some(vf) = self.variants.get(c).cloned() {
                     if let Ty::Contract(d) = t

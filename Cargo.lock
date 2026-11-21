@@ -20,6 +20,7 @@ dependencies = [
  "chrono",
  "deposits",
  "derivatives",
+ "funding",
  "loans",
  "obligations",
  "prudence-core",
@@ -64,6 +65,15 @@ dependencies = [
 
 [[package]]
 name = "derivatives"
+version = "0.1.0"
+dependencies = [
+ "arf210",
+ "chrono",
+ "prudence-core",
+]
+
+[[package]]
+name = "funding"
 version = "0.1.0"
 dependencies = [
  "arf210",

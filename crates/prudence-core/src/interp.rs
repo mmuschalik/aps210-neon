@@ -553,6 +553,10 @@ impl<'a> Interp<'a> {
             (Pat::Tuple(ps), Val::Tuple(vs)) if ps.len() == vs.len() => {
                 ps.iter().zip(vs).all(|(p, v)| self.bind(p, v, scope))
             }
+            // `Some(x)`: an optional value that is present.
+            (Pat::Ctor(n, ps), v) if n == "Some" && ps.len() == 1 && !matches!(v, Val::None | Val::Ctor(..)) => {
+                self.bind(&ps[0], v, scope)
+            }
             (Pat::Ctor(n, ps), Val::Ctor(m, vs)) => {
                 n == m && ps.len() == vs.len() && ps.iter().zip(vs).all(|(p, v)| self.bind(p, v, scope))
             }

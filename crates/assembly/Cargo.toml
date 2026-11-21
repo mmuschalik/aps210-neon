@@ -15,5 +15,6 @@ obligations = { path = "../obligations" }
 loans = { path = "../loans" }
 derivatives = { path = "../derivatives" }
 checker = { path = "../checker" }
+funding = { path = "../funding" }
 serde_json.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["std"] }
