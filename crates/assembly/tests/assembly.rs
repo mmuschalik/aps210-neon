@@ -397,7 +397,7 @@ fn all_returns_from_one_bank_pass_every_cross_form_rule() {
         consolidation: "level1".into(),
         regime: "lcr".into(),
     };
-    let p = package_all(&b, &r, context, rd(), Mode::Conservative).unwrap();
+    let p = package_all(&b, &r, context, rd(), Mode::Conservative, &assembly::maturity::Extras::default()).unwrap();
     // The maturity ladders hold the modelled balance sheet.
     let assets = &p.optional_inputs["ARF 210.3.1"];
     assert!(assets.contains_key("2.1.1:y10plus"), "{assets:?}"); // the bond, no maturity
@@ -430,4 +430,70 @@ fn all_returns_from_one_bank_pass_every_cross_form_rule() {
     let mut q = p.clone();
     q.optional_inputs.get_mut("ARF 210.5").unwrap().insert("1.1:balance".into(), Q::from_integer(1.into()));
     assert!(checker::check_complete(&q).failures().iter().any(|f| f.contains("210.5:1.1=210.1A:25")));
+}
+
+fn ctx(regime: &str) -> checker::ReportingContext {
+    checker::ReportingContext {
+        entity: "test-bank".into(),
+        reporting_date: rd().to_string(),
+        consolidation: "level1".into(),
+        regime: regime.into(),
+    }
+}
+
+/// ARF 210.5 history from earlier daily snapshots and ARF 210.4 forecasts
+/// from the funding plan, through the strict gate.
+#[test]
+fn daily_history_and_funding_plan() {
+    let mut b = with_ledger(bank(true));
+    b.derivatives.sets.push(derivatives::NettingSet { id: "csa".into(), netting_agreement: Some(true), ..Default::default() });
+    let paid = rd() - Days::new(2);
+    b.derivatives.collateral_flows.push(derivatives::CollateralFlow {
+        set: "csa".into(),
+        amount: m(-7),
+        currency: "AUD".into(),
+        valid: paid,
+        recorded: paid,
+    });
+    let mut prior = bank(true);
+    prior.loans[0].balance = m(50); // the loan book grew by 10m over the week
+    let extras = assembly::maturity::Extras {
+        recent: (1..=4).map(|k| (rd() - Days::new(k), bank(true))).collect(),
+        prior: Some((rd() - Days::new(7), prior)),
+        plan: [("9.1.1:m12".to_string(), m(55))].into(),
+    };
+    let r = lcr_return(&b, rd(), Mode::Conservative).unwrap();
+    let p = package_all(&b, &r, ctx("lcr"), rd(), Mode::Conservative, &extras).unwrap();
+    let daily = &p.optional_inputs["ARF 210.5"];
+    for k in ["5.2:day2", "5.2:day5", "1.1:prior", "2.2:prior", "2.2:balance", "3.1:outflow", "4.3:outflow"] {
+        assert!(daily.contains_key(k), "{k}: {daily:?}");
+    }
+    assert_eq!(daily["3.1:outflow"], Q::from_integer(10.into()));
+    assert_eq!(daily["4.3:outflow"], Q::from_integer(7.into()));
+    assert_eq!(p.optional_inputs["ARF 210.4"]["9.1.1:m12"], Q::from_integer(55.into()));
+    let rep = checker::check_complete(&p);
+    assert!(rep.passed(), "{:?}", rep.failures());
+}
+
+/// An MLH ADI: ARF 210.2 from the holdings, liabilities and commitments, and
+/// ARF 210.5 tied to it.
+#[test]
+fn mlh_adi_returns() {
+    let b = with_ledger(bank(false));
+    let r = lcr_return(&b, rd(), Mode::Conservative).unwrap();
+    let p = package_all(&b, &r, ctx("mlh"), rd(), Mode::Conservative, &assembly::maturity::Extras::default()).unwrap();
+    let mlh = &p.optional_inputs["ARF 210.2"];
+    assert_eq!(mlh["2.1:amount"], Q::from_integer(500.into())); // the Commonwealth bond
+    assert!(mlh["12.1:amount"] > Q::default() && mlh["13.4:amount"] == Q::from_integer(80.into()));
+    let rep = checker::check_complete(&p);
+    assert!(rep.passed(), "{:?}", rep.failures());
+    let bundle = rep.bundle.unwrap();
+    let cov = bundle["coverage"]["cross_form"].as_array().unwrap();
+    let st = |rule: &str| cov.iter().find(|c| c["rule"] == rule).unwrap()["status"].as_str().unwrap().to_string();
+    assert_eq!(st("daily_vs_mlh"), "evaluated");
+    assert_eq!(st("daily_lcr_stock"), "skipped");
+    // A daily report out of line with ARF 210.2 is caught.
+    let mut q = p.clone();
+    q.optional_inputs.get_mut("ARF 210.5").unwrap().insert("1.1:balance".into(), Q::from_integer(1.into()));
+    assert!(checker::check_complete(&q).failures().iter().any(|f| f.contains("210.5:1.1=210.2")));
 }

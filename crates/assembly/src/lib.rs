@@ -450,22 +450,33 @@ pub fn checker_parts(ret: &Return) -> Vec<checker::Part> {
         .collect()
 }
 
-/// Every return the engine can produce for one reporting context: ARF 210.1A,
-/// 210.1B, 210.6, and (from the same records) 210.3.1, 210.3.2, the actual
-/// column of 210.4 and the same-date figures of 210.5. ARF 210.2 is for MLH
-/// ADIs, which do not report the LCR.
+/// Every return for one reporting context: ARF 210.1A, 210.1B, 210.6, 210.3.1,
+/// 210.3.2, 210.4 (actuals from the records, forecasts from the funding plan),
+/// 210.5 (history from earlier snapshots), and 210.2 for an MLH ADI.
 pub fn package_all(
     bank: &Bank,
     ret: &Return,
     context: checker::ReportingContext,
     date: NaiveDate,
     mode: Mode,
+    extras: &maturity::Extras,
 ) -> Result<checker::Package, String> {
     let mut p = package_with_context(bank, ret, context.clone(), date);
-    for b in maturity::build(bank, ret, date, mode)? {
+    for b in maturity::build(bank, ret, date, mode, &context.regime, extras)? {
         for c in &b.contributions {
             if !p.records.iter().any(|r| r.id == c.source) {
-                p.external_sources.entry(c.source.clone()).or_insert_with(|| "the same-date LCR return".into());
+                let why = if c.source.starts_with("ARF ") {
+                    "the same-date return"
+                } else if c.source.starts_with("snapshot ") {
+                    "the ADI's records as at an earlier business day; not GL reconciled at this date"
+                } else if c.source.starts_with("collateral events") {
+                    "realised collateral flows (bitemporal events); not GL reconciled"
+                } else if c.source == "funding plan" {
+                    "the ADI's funding plan (forecast); not GL reconciled"
+                } else {
+                    "not GL reconciled"
+                };
+                p.external_sources.entry(c.source.clone()).or_insert_with(|| why.into());
             }
         }
         p.optional_inputs.insert(b.code.into(), b.inputs);
