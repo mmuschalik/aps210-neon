@@ -6,7 +6,7 @@ engine, Lean/SMT proofs, tiny trusted checker).
 
 Requires `z3` and `lean` (via elan) on PATH for the proof tests.
 
-Not yet: the incremental (DBSP) engine, DuckDB stress runs, and the remaining
+Not yet: the incremental (DBSP) engine, DuckDB stress runs, and production data generation for the maturity, funding-plan and daily
 forms. The Lean backend compiles the deposit module; views, `optimize`
 solutions and event queries stay abstract `World` fields rather than being
 compiled.
@@ -24,14 +24,14 @@ cargo run -p arf210 -- 210.1A    # print a form spec for review against the PDF
 | `specs/arf210/*.prd` | **Source of truth** for the ARF 210 forms, in Prudence syntax (`form` declarations): every cell is an input or an exact expression, with `@cite`. Canonical formatting: `cargo run -p arf210 -- fmt 210.1A`. |
 | `specs/deposits/retail_sme.prd` | **Source of truth** for the step-2 deposit rules: a Prudence `module` in the design.txt §4.A syntax (`view`, `fn`/`match`, `conservative(..)`, `optimize`, `partition`, `invariant`, `theorem`). Parsed, name-resolved, type-checked, proof obligations discharged by Z3, and executed by the interpreter. |
 | `crates/prudence-core` | Prudence: exact rationals (no floats anywhere); `syntax/lean` = Lean 4 backend; `lp` = exact two-phase simplex with a primal-dual certificate checker (every `optimize` is a general LP); `syntax/` (lexer, parser, name resolution, type checker, form lowering, printer, `prove` = Z3 proof obligations); the form IR and evaluator; `interp` = module interpreter (views, `optimize` with solution certificate, `partition` with run-time exhaustiveness, invariants, clause-level provenance). |
-| `crates/arf210` | Loads the four specs; cross-form rules; CLI; parity and scenario tests. |
+| `crates/arf210` | Loads the eight specs; cross-form rules; CLI; parity and scenario tests. |
 | `specs/secured/secured_funding.prd` | **Source of truth** for the LCR numerator: the stock of liquid assets (holdings -> ARF 210.1A items 1.1-3.3, Att A paras 9-12, 22-25; central bank balances only if drawable in stress), the CLF (items 6.1.x, 6.4, and CLF collateral in 11.5/19.1.5), secured funding and lending (repos, reverse repos as ACTUS REP -> items 11 and 19), and the mechanical 30-day unwind of the HQLA stock (`unwind`, Att A para 8). |
 | `crates/secured` | Data model and loader for holdings and repos; `run()` produces the Section A, item 11 and item 19 inputs and the unwind per HQLA class, so the whole numerator (adjusted stocks, 15%/40% caps, item 4) is computed from raw data. `cargo run -p secured --bin secured-lean` regenerates `lean/Prudence/SecuredFunding.lean`. |
 | `specs/deposits/wholesale.prd` | **Source of truth** for wholesale deposits (ARF 210.1A items 9.2-9.5, ARF 210.6 items 8-12): operational / excess / insured three-way split via a nested `partition ... splitting X by operational: ..., covered: ...`; unknown operational balance -> all excess (APG 210 para 135). Generated Lean model `lean/Prudence/Wholesale.lean` (n-way splits as a chain of portions; `cargo run -p deposits --bin wholesale-lean`), proofs in `lean/Prudence/WholesaleProofs.lean` (portions conserve the balance; unknown operational service or balance is all excess), differential `#guard`s against the interpreter. |
 | `specs/loans/loans.prd` | **Source of truth** for loans as ACTUS contracts (ANN, LAM, PAM, UMP): contractual inflows within 30 days (ARF 210.1A items 20.1-20.6; performing only, open-maturity loans only their minimum payment) and NSFR RSF with every repayment bucketed by its own date (ARF 210.6 items 24, 35-37, 39; encumbrance per Att C para 23). Exact annuity schedules over rationals (`cycle`, `pow`); intra-group rows 20.7-20.9, other contractual inflows 21.4, head office support 21.5. `crates/loans` holds the data model and `run()`. Generated Lean model over `Rat` with the civil calendar ported from `date.rs` (`lean/Prudence/Loans.lean`, `cargo run -p loans --bin loans-lean`); proofs in `lean/Prudence/LoansProofs.lean` (bucketing conserves the balance; unknown performance means no inflow; open-maturity loans pay only the minimum); differential `#guard`s for inflows, RSF and the calendar. |
 | `specs/derivatives/derivatives.prd` | **Source of truth** for derivatives and collateral: 30-day derivative cash flows netted only under an MNA or for same-day FX principal (ARF 210.1A items 13.1, 21.1; options exercised when in the money, unknown resolved per direction), collateral items 13.2-13.5 and 13.7, the 24-month lookback (13.6) as a bitemporal query over realised collateral flows, and NSFR replacement cost and margins (ARF 210.6 items 13.1.x, 40.1.x, 42.1). `crates/derivatives` holds the data model and `run()`. |
 | `crates/assembly` | Return assembly: every module's per-record contributions, tagged with the record's currency, summed into ARF 210.1A; the currency split (items 18.x, 23.x) by evaluating the form per currency, with derivative flows under the ARS currency rule (FX funding swaps gross, FX trading excluded). The tie-out of the split to items 18 and 23 is a `check warn`, since the ARS rule means it need not hold. |
-| `crates/checker` | The trusted verification gate. From plain data (ledger, records, slices, per-record contributions, lodged inputs, LP certificates, assumptions, spec sources) it re-derives and checks, without the interpreter, the solver or any module: GL tie-out, conservation of every split record, no double counting (stock vs inflows; contributions only to input cells), lodged inputs = contributions (including the currency split), LP primal-dual certificates, every form check and form theorem on the concrete return, and ARF 210.6 vs 210.1A. Only then does it emit the APS 310 audit bundle: SHA-256 (in-crate, FIPS 180-4 vectors) of the data snapshot, each spec and the spec version, certificates, assumptions and returns; the manifest hash is the bundle id. Standalone: `cargo run -p checker --bin prudence-check -- package.json --bundle bundle.json` (exit 0 and a bundle only if every check passes); the package is JSON with exact rationals as strings (`checker::json`). |
+| `crates/checker` | The trusted verification gate. From plain data (ledger, records, slices, per-record contributions, lodged inputs, LP certificates, assumptions, spec sources) it re-derives and checks, without the interpreter, the solver or any module: GL tie-out, conservation of every split record, no double counting (stock vs inflows; contributions only to input cells), lodged inputs = contributions (including the currency split), LP primal-dual certificates, every form check and form theorem on the concrete return, and all cross-form rules whose returns are present. Only then does it emit the APS 310 audit bundle: SHA-256 (in-crate, FIPS 180-4 vectors) of the data snapshot, each spec and the spec version, certificates, assumptions and returns; the manifest hash is the bundle id. Standalone: `cargo run -p checker --bin prudence-check -- package.json --bundle bundle.json` (exit 0 and a bundle only if every check passes); the package is JSON with exact rationals as strings (`checker::json`). |
 | `specs/obligations/commitments.prd` | **Source of truth** for off-balance sheet outflows: committed and uncommitted credit/liquidity facilities (items 14, 16.1; redraw as committed, funding vehicles as FI liquidity facilities), obligations to extend funds (item 15), and contingent funding obligations (items 16.2-16.9). `crates/obligations` holds the data model and `run()`. |
 | `lean/Prudence/UnwindProofs.lean` | design.txt §4.A.4's theorem: for every portfolio, the mechanical unwind equals the ARF 210.1A adjustment formulas (items 1.5.1, 2.5.1, 3.4.1, 3.5.1, generated from the form spec) applied to the reported items. |
 | `lean/Prudence/RetailSme.lean` | **Generated** Lean 4 model of `retail_sme.prd` (types, records, contracts, rules, partition outputs, and the ARF 210.1A / 210.6 measures from the form specs). Never edited by hand: `cargo run -p deposits --bin prudence-lean`. |
@@ -44,8 +44,18 @@ Basis>` (mixing market and carrying values is a compile error) and
 difference prices missing data).
 
 Forms covered: ARF 210.1A (LCR all currencies), 210.1B (LCR AUD), 210.2 (MLH),
-210.6 (NSFR). Not yet: 210.3.x, 210.4, 210.5, and the free-form currency table
-in 210.1A item 35.
+210.3.1/210.3.2 (maturity), 210.4 (funding plan), 210.5 (daily), and 210.6
+(NSFR). Not yet: 210.4 companion data and the free-form currency table in
+210.1A item 35.
+
+Checker packages accept an optional `optional_inputs` object keyed by canonical
+form code (for example, `"ARF 210.1B": {"10.1": "40"}`); values are input maps
+with exact rational strings. Omission remains compatible with older packages.
+Each supplied return is evaluated, checked, and hashed into the audit bundle.
+The checker applies the 1A/1B, daily/LCR, daily/MLH, funding-plan/maturity,
+and NSFR/LCR rules whenever their forms are available. Either maturity form
+can be supplied independently. Assembly includes 210.1B from AUD currency-split
+contributions, including the FX split treatment.
 
 ## How it was verified
 
@@ -133,3 +143,63 @@ To confirm with APRA / auditors:
   FCS-eligible can move cover away from a stable-capable account and lower ASF.
   This holds for any allocation rule. The invariant is tested where it is true
   (no shared cover, no SMEs) and the counterexamples are pinned as tests.
+
+## Checker assurance boundary
+
+The CLI defaults to `check_complete`: every supplied return needs contribution
+evidence and reporting context; every certificate needs supported FCS problem
+evidence and account/output bindings. Missing evidence fails the gate and prevents
+a bundle. Legacy diagnostics require `--allow-partial` (library: `check`).
+
+Schema 3 labels bundles `complete_evidence_consistency` or `scoped_consistency`.
+Neither is a digital signature or an assertion that upstream facts are correct.
+The full gate verifies the package's internal evidence relationships. Source
+completeness, classification truth, and signed regulatory overlays remain outside
+that proof, and are listed explicitly in coverage.
+
+Every contribution must reference a ledger record or an explicitly declared
+`external_sources` entry. Off-ledger commitments and aggregate netting sets are
+declared separately and labelled as not GL reconciled. Assembly supplies both LCR
+streams and source-level NSFR evidence. 210.1A/1B are reconstructed from the
+contribution streams; NSFR and other optional returns use `form_contributions`:
+
+```json
+{"ARF 210.3.1": [{"source": "cash-account", "cell": "1.1:at_call", "amount": "10"}]}
+```
+
+Amounts use exact rational strings in reporting units. An empty evidence array
+asserts zero inputs; missing zero cells are equivalent to explicit zeros.
+Unknown or derived contribution cells fail. The rates map accepts weight cells
+only. Undefined LCRs are null with an explicit status rather than a panic.
+
+Reporting `contexts` are keyed by form code, each with `entity`,
+`reporting_date`, `consolidation` (`level1` or `level2`), and `regime`
+(`lcr` or `mlh`). All contexts must match each other and the package date.
+Assembly callers supply these using `package_with_context`; the engine does not
+invent an entity or consolidation level. Daily rules select the declared regime.
+Level 2 comparisons omit Level 1 day-1 ratios. Coverage lists every implemented
+cross-form rule group as evaluated or skipped, with the reason. These rules do
+not assert that all regulatory returns required of a particular ADI were supplied.
+
+FCS certificates retain account IDs in decision-variable order and resolved
+eligibility, operational amounts and counterfactual rates. The checker reconstructs
+the 250,000 AUD budget, account bounds, and objective independently of the supplied
+LP matrix. It verifies primal-dual optimality, compares covered slices to the
+solution, conserves account balances, and reconciles slice outputs to LCR/NSFR
+contributions. A valid certificate for a substituted problem fails. The resolved
+attributes and counterfactual classifications are evidence, not independently
+reclassified raw contracts. Generic LPs without supported problem evidence are
+available only in partial diagnostics.
+
+`specs` and `spec_version` identify the compiled form sources used by the checker.
+Caller sources appear separately as `declared_sources`; `forms/<canonical code>`
+declarations must match the compiled source exactly. `package_sha256` binds all
+serialized input evidence, including rates, contexts, allocation data and source
+declarations. Coverage records evaluated forms, contribution reconciliation,
+allocation verification, missing evidence, and unsupported guarantees.
+
+The manifest also fingerprints checker, JSON, cross-form, evaluator and LP verifier
+source files. These are implementation identifiers, not a reproducible-build
+attestation. Undefined operands do not establish equality in cross-form rules;
+the coverage policy records that skip behavior and the primary ratio has an
+explicit defined/undefined status.

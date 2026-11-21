@@ -79,7 +79,12 @@ fn get(ev: &Evaluation, key: &str) -> Option<Q> {
 }
 
 fn finding(id: &str, desc: &str, detail: String) -> Finding {
-    Finding { warn: false, check_id: id.into(), description: desc.into(), detail }
+    Finding {
+        warn: false,
+        check_id: id.into(),
+        description: desc.into(),
+        detail,
+    }
 }
 
 /// `a == b` exactly; skipped when either side is undefined.
@@ -95,7 +100,11 @@ fn tie(out: &mut Vec<Finding>, id: &str, desc: &str, a: Option<Q>, b: Option<Q>)
 fn one_dp(q: &Q) -> Q {
     let ten = Q::from_integer(10.into());
     let x = q * &ten;
-    let r = if x >= Q::zero() { (x + Q::new(1.into(), 2.into())).floor() } else { (x - Q::new(1.into(), 2.into())).ceil() };
+    let r = if x >= Q::zero() {
+        (x + Q::new(1.into(), 2.into())).floor()
+    } else {
+        (x - Q::new(1.into(), 2.into())).ceil()
+    };
     r / ten
 }
 
@@ -136,7 +145,13 @@ pub fn daily_vs_lcr(daily: &Evaluation, lcr_all: &Evaluation, lcr_aud: Option<&E
     assert_eq!(daily.form.code, "ARF 210.5");
     assert_eq!(lcr_all.form.code, "ARF 210.1A");
     let mut out = Vec::new();
-    tie_1dp(&mut out, "210.5:1.1=210.1A:25", "HQLA in ARF 210.5 differ from ARF 210.1A", get(daily, "1.1:balance"), get(lcr_all, "25:value"));
+    tie_1dp(
+        &mut out,
+        "210.5:1.1=210.1A:25",
+        "HQLA in ARF 210.5 differ from ARF 210.1A",
+        get(daily, "1.1:balance"),
+        get(lcr_all, "25:value"),
+    );
     tie_1dp(
         &mut out,
         "210.5:1.4=210.1A:26",
@@ -144,9 +159,21 @@ pub fn daily_vs_lcr(daily: &Evaluation, lcr_all: &Evaluation, lcr_aud: Option<&E
         get(daily, "1.4:balance"),
         get(lcr_all, "26:value"),
     );
-    tie_1dp(&mut out, "210.5:5.2=210.1A:30", "All-currency LCR in ARF 210.5 differs from ARF 210.1A", get(daily, "5.2:day1"), get(lcr_all, "30:value"));
+    tie_1dp(
+        &mut out,
+        "210.5:5.2=210.1A:30",
+        "All-currency LCR in ARF 210.5 differs from ARF 210.1A",
+        get(daily, "5.2:day1"),
+        get(lcr_all, "30:value"),
+    );
     if let Some(aud) = lcr_aud {
-        tie_1dp(&mut out, "210.5:5.1=210.1B:30", "AUD LCR in ARF 210.5 differs from ARF 210.1B", get(daily, "5.1:day1"), get(aud, "30:value"));
+        tie_1dp(
+            &mut out,
+            "210.5:5.1=210.1B:30",
+            "AUD LCR in ARF 210.5 differs from ARF 210.1B",
+            get(daily, "5.1:day1"),
+            get(aud, "30:value"),
+        );
     }
     out
 }
@@ -227,9 +254,20 @@ pub fn funding_plan_vs_maturity(plan: &Evaluation, assets: &Evaluation, liabilit
     assert_eq!(plan.form.code, "ARF 210.4");
     assert_eq!(assets.form.code, "ARF 210.3.1");
     assert_eq!(liabilities.form.code, "ARF 210.3.2");
+    let mut out = funding_plan_vs_one_maturity(plan, assets);
+    out.extend(funding_plan_vs_one_maturity(plan, liabilities));
+    out
+}
+
+/// Check the available side of the funding-plan mapping independently.
+pub fn funding_plan_vs_one_maturity(plan: &Evaluation, other: &Evaluation) -> Vec<Finding> {
+    assert_eq!(plan.form.code, "ARF 210.4");
+    assert!(matches!(other.form.code.as_str(), "ARF 210.3.1" | "ARF 210.3.2"));
     let mut out = Vec::new();
     for (a, code, b) in funding_plan_mapping() {
-        let other = if code == "ARF 210.3.1" { assets } else { liabilities };
+        if code != other.form.code {
+            continue;
+        }
         let short = code.trim_start_matches("ARF ");
         tie(
             &mut out,

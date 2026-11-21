@@ -50,6 +50,7 @@ pub struct Deposit {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WSlice {
     pub account: String,
+    pub covered: bool,
     pub amount: Q,
     pub lcr_item: Option<String>,
     pub nsfr: (String, String),
@@ -132,7 +133,7 @@ pub fn run_with_certificates(
             },
             other => return Err(format!("{}: nsfr {other:?}", s.subject)),
         };
-        slices.push(WSlice { account: s.subject, amount: s.amount, lcr_item, nsfr });
+        slices.push(WSlice { covered: s.splits.iter().any(|(name, value)| name == "covered" && *value), account: s.subject, amount: s.amount, lcr_item, nsfr });
     }
     slices.sort();
     Ok((slices, out.allocations))

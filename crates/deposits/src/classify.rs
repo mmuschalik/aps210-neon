@@ -78,6 +78,7 @@ impl Slice {
 
 #[derive(Debug)]
 pub struct Classification {
+    pub fcs_rates: BTreeMap<String, (Q, Q)>,
     pub params: Params,
     pub slices: Vec<Slice>,
     pub assumptions: Vec<Assumption>,
@@ -216,5 +217,5 @@ pub fn classify(book: &Book, params: &Params) -> Result<Classification, Classify
         .into_iter()
         .map(|((subject, attr), (assumed, reason))| Assumption { subject, attribute: attribute(&attr), assumed, reason })
         .collect();
-    Ok(Classification { params: params.clone(), slices, assumptions, allocations })
+    Ok(Classification { fcs_rates: run.fcs_rates, params: params.clone(), slices, assumptions, allocations })
 }

@@ -13,3 +13,4 @@ publish.workspace = true
 prudence-core = { path = "../prudence-core" }
 arf210 = { path = "../arf210" }
 serde_json.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["std"] }

@@ -150,6 +150,7 @@ pub struct SpecSlice {
 }
 
 pub struct SpecRun {
+    pub fcs_rates: std::collections::BTreeMap<String, (Q, Q)>,
     pub slices: Vec<SpecSlice>,
     /// (subject, attribute) -> (value assumed, reason)
     pub assumptions: std::collections::BTreeMap<(String, String), (String, String)>,
@@ -173,7 +174,15 @@ pub fn run(book: &Book, params: &Params) -> Result<SpecRun, String> {
             ("sme_threshold".into(), Val::Num(params.sme_threshold.amount().clone())),
         ],
     };
-    let out = Interp::new(module(), &world, opts)?.run()?;
+    let it = Interp::new(module(), &world, opts)?;
+    let out = it.run()?;
+    let mut fcs_rates = std::collections::BTreeMap::new();
+    for (i, account) in book.accounts.iter().enumerate() {
+        let rate = |covered| match it.call_fn("lcr_rate", vec![Val::Rec("Deposit".into(), i), Val::Bool(covered)])? {
+            Val::Num(q) => Ok(q), _ => Err("non-numeric FCS rate".to_string()),
+        };
+        fcs_rates.insert(account.id.clone(), (rate(true)?, rate(false)?));
+    }
     let mut slices = Vec::new();
     for s in out.slices {
         let lcr_item = match s.output("lcr") {
@@ -191,7 +200,7 @@ pub fn run(book: &Book, params: &Params) -> Result<SpecRun, String> {
         slices.push(SpecSlice { account: s.subject, amount: s.amount, lcr_item, nsfr_item, nsfr_bucket, covered: s.split, cites: s.cites });
     }
     slices.sort();
-    Ok(SpecRun { slices, assumptions: out.assumptions, allocations: out.allocations })
+    Ok(SpecRun { fcs_rates, slices, assumptions: out.assumptions, allocations: out.allocations })
 }
 
 /// The Lean model generated from the spec, measured on ARF 210.1A (weights)

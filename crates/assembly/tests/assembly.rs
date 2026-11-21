@@ -16,12 +16,18 @@ fn m(x: i64) -> Q {
 }
 
 fn bank(with_fx_swap: bool) -> Bank {
-    let mut b = Bank { retail: deposits::testgen::Gen::new(7).book(rd()), ..Bank::default() };
+    let mut b = Bank {
+        retail: deposits::testgen::Gen::new(7).book(rd()),
+        ..Bank::default()
+    };
     // Some retail accounts are in NZD.
     for a in b.retail.accounts.iter().step_by(3) {
         b.currency.insert(a.id.clone(), "NZD".into());
     }
-    b.wholesale_customers.push(deposits::wholesale::Customer { id: "corp".into(), kind: deposits::wholesale::Kind::NonFinancialCorporate });
+    b.wholesale_customers.push(deposits::wholesale::Customer {
+        id: "corp".into(),
+        kind: deposits::wholesale::Kind::NonFinancialCorporate,
+    });
     b.wholesale_deposits.push(deposits::wholesale::Deposit {
         id: "corp-usd".into(),
         customer_id: "corp".into(),
@@ -211,12 +217,10 @@ fn an_honest_return_passes_and_gets_a_content_addressed_bundle() {
     let again = checker::check(&p).bundle.unwrap();
     assert_eq!(bundle["bundle_id"], again["bundle_id"]);
     assert_eq!(bundle["bundle_id"].as_str().unwrap().len(), 64);
-    // A changed spec changes the spec version and the bundle id.
+    // A declared form spec must match the rules actually executed.
     let mut q = p.clone();
     q.specs[0].1.push(' ');
-    let changed = checker::check(&q).bundle.unwrap();
-    assert_ne!(bundle["spec_version"], changed["spec_version"]);
-    assert_ne!(bundle["bundle_id"], changed["bundle_id"]);
+    fails(&q, "evidence integrity");
 }
 
 fn fails(p: &checker::Package, check: &str) {
@@ -235,7 +239,9 @@ fn the_gate_catches_each_kind_of_error() {
     // A record missing from the run: the ledger does not tie out.
     let mut q = p.clone();
     q.records.retain(|r| r.id != "acgb");
-    fails(&q, "gl tie-out");
+    let failures = checker::check(&q).failures();
+    assert!(failures.iter().any(|f| f.starts_with("gl tie-out:")));
+    assert!(failures.iter().any(|f| f.starts_with("evidence integrity:")));
 
     // A slice lost from a split deposit.
     let mut q = p.clone();
@@ -250,9 +256,16 @@ fn the_gate_catches_each_kind_of_error() {
 
     // An HQLA security also counted as a maturing-securities inflow.
     let mut q = p.clone();
-    let part = checker::Part { record: "acgb".into(), item: "21.3".into(), currency: "AUD".into(), amount: m(1), stream: checker::Stream::Both };
+    let part = checker::Part {
+        record: "acgb".into(),
+        item: "21.3".into(),
+        currency: "AUD".into(),
+        amount: m(1),
+        stream: checker::Stream::Both,
+    };
     q.parts.push(part);
     q.lcr_inputs = checker::derive_lcr_inputs(&q.parts, &q.rates).unwrap();
+    q.optional_inputs.insert("ARF 210.1B".into(), checker::derive_aud_inputs(&q.parts, &q.rates));
     fails(&q, "no double counting");
 
     // A tampered LP certificate.
@@ -271,4 +284,101 @@ fn the_package_round_trips_through_json() {
     let back = checker::json::from_json(&serde_json::from_str(&text).unwrap()).unwrap();
     let again = checker::check(&back);
     assert_eq!(rep.bundle.unwrap()["bundle_id"], again.bundle.unwrap()["bundle_id"]);
+}
+
+#[test]
+fn nsfr_is_reconciled_to_source_contributions() {
+    let (mut p, report) = gate(&with_ledger(bank(true)));
+    assert!(report.passed(), "{:?}", report.failures());
+    assert!(!p.form_contributions["ARF 210.6"].is_empty());
+    let key = p.nsfr_inputs.keys().next().unwrap().clone();
+    *p.nsfr_inputs.get_mut(&key).unwrap() += Q::from_integer(1.into());
+    assert!(checker::check(&p).failures().iter().any(|f| f.starts_with("inputs = contributions: ARF 210.6")));
+}
+
+#[test]
+fn dropping_nsfr_evidence_cannot_preserve_reconciliation() {
+    let (mut p, _) = gate(&with_ledger(bank(true)));
+    p.form_contributions.get_mut("ARF 210.6").unwrap().clear();
+    assert!(checker::check(&p).failures().iter().any(|f| f.starts_with("inputs = contributions: ARF 210.6")));
+}
+
+#[test]
+fn valid_lp_cannot_hide_changed_allocation_outputs() {
+    let (p, report) = gate(&with_ledger(bank(true)));
+    assert!(report.passed(), "{:?}", report.failures());
+    assert!(p.certificates.iter().all(|c| !c.subjects.is_empty()));
+    let mut changed = p.clone();
+    let slice = changed.allocation_slices.iter_mut().find(|s| s.amount > Q::default()).unwrap();
+    slice.covered = !slice.covered;
+    assert!(checker::check(&changed).failures().iter().any(|f| f.starts_with("allocation bindings:")));
+    let mut changed = p.clone();
+    let source = changed.certificates[0].subjects[0].clone();
+    let part = changed.parts.iter_mut().find(|part| part.record == source).unwrap();
+    part.amount += Q::from_integer(1.into());
+    changed.lcr_inputs = checker::derive_lcr_inputs(&changed.parts, &changed.rates).unwrap();
+    changed
+        .optional_inputs
+        .insert("ARF 210.1B".into(), checker::derive_aud_inputs(&changed.parts, &changed.rates));
+    assert!(checker::check(&changed).failures().iter().any(|f| f.contains("LCR allocation output")));
+    let mut changed = p.clone();
+    changed.certificates[0].subjects[0] = "invented".into();
+    assert!(checker::check(&changed).failures().iter().any(|f| f.starts_with("allocation bindings:")));
+}
+
+#[test]
+fn allocation_evidence_roundtrips_and_is_content_bound() {
+    let (p, _) = gate(&with_ledger(bank(true)));
+    let b = checker::check(&p).bundle.unwrap();
+    let back = checker::json::from_json(&checker::json::to_json(&p)).unwrap();
+    assert_eq!(checker::check(&back).bundle.unwrap(), b);
+    assert_eq!(b["coverage"]["allocation_bound"].as_array().unwrap().len(), p.certificates.len());
+    assert!(b["coverage"]["allocation_binding_missing"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn valid_certificate_for_substituted_problem_is_rejected() {
+    let (mut p, _) = gate(&with_ledger(bank(true)));
+    let c = &mut p.certificates[0];
+    c.lp.objective.fill(Q::default());
+    c.solution = prudence_core::lp::solve(&c.lp).unwrap();
+    prudence_core::lp::verify(&c.lp, &c.solution).unwrap();
+    assert!(checker::check(&p).failures().iter().any(|f| f.contains("reconstructed FCS")));
+}
+
+#[test]
+fn every_engine_allocation_has_a_reconstructed_problem() {
+    let (p, report) = gate(&with_ledger(bank(true)));
+    assert!(report.passed(), "{:?}", report.failures());
+    let b = report.bundle.unwrap();
+    assert_eq!(b["coverage"]["fcs_problem_reconstructed"].as_array().unwrap().len(), p.certificates.len());
+    let mut p = p;
+    p.certificates[0].fcs.as_mut().unwrap().eligible.clear();
+    assert!(checker::check(&p).failures().iter().any(|f| f.contains("FCS evidence has wrong shape")));
+}
+
+#[test]
+fn complete_gate_requires_all_evidence_and_accepts_assembled_package() {
+    let (mut p, _) = gate(&with_ledger(bank(true)));
+    let c = checker::ReportingContext {
+        entity: "test-bank".into(),
+        reporting_date: p.reporting_date.clone(),
+        consolidation: "level1".into(),
+        regime: "lcr".into(),
+    };
+    for code in ["ARF 210.1A", "ARF 210.1B", "ARF 210.6"] {
+        p.contexts.insert(code.into(), c.clone());
+    }
+    let report = checker::check_complete(&p);
+    assert!(report.passed(), "{:?}", report.failures());
+    assert_eq!(report.bundle.unwrap()["assurance"], "complete_evidence_consistency");
+    let mut missing = p.clone();
+    missing.form_contributions.remove("ARF 210.6");
+    assert!(checker::check_complete(&missing).failures().iter().any(|f| f.contains("contribution evidence is required")));
+    let mut missing = p.clone();
+    missing.certificates[0].fcs = None;
+    assert!(checker::check_complete(&missing).failures().iter().any(|f| f.contains("supported problem evidence")));
+    let mut missing = p;
+    missing.contexts.clear();
+    assert!(checker::check_complete(&missing).failures().iter().any(|f| f.contains("reporting context is required")));
 }

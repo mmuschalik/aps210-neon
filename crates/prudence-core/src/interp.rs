@@ -122,6 +122,8 @@ impl Slice {
 /// Result of one allocation problem (one `per` group).
 #[derive(Clone, Debug)]
 pub struct Allocation {
+    /// Source record IDs, in the exact order of LP decision variables.
+    pub subjects: Vec<String>,
     pub alloc: String,
     pub group: String,
     /// Marginal objective value per unit of the budget (shadow price).
@@ -940,6 +942,7 @@ impl<'a> Interp<'a> {
                 result.insert(v.clone(), Val::Num(q.clone()));
             }
             self.allocations.borrow_mut().push(Allocation {
+                subjects: rows.iter().map(|r| self.id_of(r)).collect(),
                 alloc: name.into(),
                 group: self.id_of(&g),
                 shadow_price,

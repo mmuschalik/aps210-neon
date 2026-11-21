@@ -17,7 +17,7 @@
 //! 5. LP certificates: primal and dual feasible with no duality gap.
 //! 6. Cap identities and checks: every form theorem holds on the concrete
 //!    return and no (non-warning) form check fails.
-//! 7. Cross-form: ARF 210.6 against ARF 210.1A.
+//! 7. Cross-form: every available pair of ARF 210 returns.
 //!
 //! Only if all pass does it emit the audit bundle: a manifest of SHA-256
 //! hashes (data snapshot, spec sources, certificates, assumptions, results)
@@ -62,25 +62,73 @@ pub struct Part {
 #[derive(Clone, Debug)]
 pub struct Certificate {
     pub name: String,
+    pub subjects: Vec<String>,
+    pub fcs: Option<FcsTerms>,
     pub lp: Lp,
     pub solution: Solution,
+}
+
+/// Resolved source attributes for the two supported FCS allocation models.
+#[derive(Clone, Debug)]
+pub struct FcsTerms {
+    pub wholesale: bool,
+    pub eligible: Vec<bool>,
+    pub operational: Vec<Q>,
+    pub covered_rates: Vec<Q>,
+    pub uncovered_rates: Vec<Q>,
+}
+
+/// An allocation-dependent partition output, in AUD before reporting conversion.
+#[derive(Clone, Debug)]
+pub struct AllocationSlice {
+    pub source: String,
+    pub amount: Q,
+    pub covered: bool,
+    pub lcr_item: Option<String>,
+    pub nsfr_cell: String,
+}
+
+/// All returns in a package must share this reporting context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportingContext {
+    pub entity: String,
+    pub reporting_date: String,
+    pub consolidation: String,
+    pub regime: String,
+}
+
+/// One source's contribution to a non-LCR form input, in reporting units.
+#[derive(Clone, Debug)]
+pub struct FormContribution {
+    pub source: String,
+    pub cell: String,
+    pub amount: Q,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Package {
     pub reporting_date: String,
+    pub contexts: BTreeMap<String, ReportingContext>,
     /// Ledger account -> balance (AUD).
     pub gl: BTreeMap<String, Q>,
     pub records: Vec<Record>,
     /// (record, amount) per slice of a split record.
     pub slices: Vec<(String, Q)>,
     pub parts: Vec<Part>,
+    /// Explicit non-ledger sources (e.g. commitments or netting sets).
+    /// These are declarations, not independently verified source records.
+    pub external_sources: BTreeMap<String, String>,
     /// Rate cells applying to every currency (e.g. "16.4:weight").
     pub rates: BTreeMap<String, Q>,
     /// ARF 210.1A and ARF 210.6 inputs as lodged (AUD millions).
     pub lcr_inputs: BTreeMap<String, Q>,
     pub nsfr_inputs: BTreeMap<String, Q>,
+    /// Optional returns, keyed by canonical form code (e.g. "ARF 210.1B").
+    /// Presence (including an empty vector) asserts complete contribution evidence.
+    pub form_contributions: BTreeMap<String, Vec<FormContribution>>,
+    pub optional_inputs: BTreeMap<String, BTreeMap<String, Q>>,
     pub certificates: Vec<Certificate>,
+    pub allocation_slices: Vec<AllocationSlice>,
     /// (subject, attribute, assumed, reason)
     pub assumptions: Vec<(String, String, String, String)>,
     /// (path, source) of every spec the run used.
@@ -232,23 +280,270 @@ pub fn derive_lcr_inputs(parts: &[Part], rates: &BTreeMap<String, Q>) -> Result<
     Ok(inputs)
 }
 
+/// AUD-only inputs use the currency split stream, including FX contributions.
+pub fn derive_aud_inputs(parts: &[Part], rates: &BTreeMap<String, Q>) -> BTreeMap<String, Q> {
+    let mut inputs = rates.clone();
+    for x in parts.iter().filter(|x| x.currency == "AUD" && x.stream != Stream::Total) {
+        *inputs.entry(x.item.clone()).or_default() += &x.amount / million();
+    }
+    inputs
+}
+
 fn inputs_match(p: &Package) -> Vec<String> {
     let want = match derive_lcr_inputs(&p.parts, &p.rates) {
         Ok(w) => w,
         Err(e) => return vec![e],
     };
+    let mut out = compare_inputs(&want, &p.lcr_inputs);
+    if let Some(aud) = p.optional_inputs.get("ARF 210.1B") {
+        out.extend(compare_inputs(&derive_aud_inputs(&p.parts, &p.rates), aud).into_iter().map(|e| format!("ARF 210.1B {e}")));
+    }
+    for (code, parts) in &p.form_contributions {
+        let lodged = if code == "ARF 210.6" { Some(&p.nsfr_inputs) } else { p.optional_inputs.get(code) };
+        if matches!(code.as_str(), "ARF 210.1A" | "ARF 210.1B") {
+            out.push(format!("{code}: use LCR parts, not form_contributions"));
+            continue;
+        }
+        let Some(lodged) = lodged else {
+            out.push(format!("{code}: contribution evidence has no return"));
+            continue;
+        };
+        let mut want = BTreeMap::new();
+        for part in parts {
+            *want.entry(part.cell.clone()).or_default() += part.amount.clone();
+        }
+        if let Some(form) = arf210::form(code)
+            && let Err(e) = eval(form, &want)
+        {
+            out.push(format!("{code}: invalid contribution cell: {e}"));
+        }
+        out.extend(compare_inputs(&want, lodged).into_iter().map(|e| format!("{code} {e}")));
+    }
+    out
+}
+
+fn compare_inputs(want: &BTreeMap<String, Q>, lodged: &BTreeMap<String, Q>) -> Vec<String> {
     let zero = Q::default();
-    let keys: BTreeSet<&String> = want.keys().chain(p.lcr_inputs.keys()).collect();
+    let keys: BTreeSet<&String> = want.keys().chain(lodged.keys()).collect();
     keys.into_iter()
         .filter_map(|k| {
-            let (a, b) = (want.get(k).unwrap_or(&zero), p.lcr_inputs.get(k).unwrap_or(&zero));
+            let (a, b) = (want.get(k).unwrap_or(&zero), lodged.get(k).unwrap_or(&zero));
             (a != b).then(|| format!("{k}: lodged {b}, contributions give {a}"))
         })
         .collect()
 }
 
+fn context_checks(p: &Package) -> Vec<String> {
+    let mut errors = Vec::new();
+    if !p.contexts.is_empty() && chrono::NaiveDate::parse_from_str(&p.reporting_date, "%Y-%m-%d").is_err() {
+        errors.push("invalid reporting date".into());
+    }
+    for (code, c) in &p.contexts {
+        if c.entity.trim().is_empty()
+            || c.reporting_date != p.reporting_date
+            || !matches!(c.consolidation.as_str(), "level1" | "level2")
+            || !matches!(c.regime.as_str(), "lcr" | "mlh")
+        {
+            errors.push(format!("{code}: invalid reporting context"));
+        }
+        if code != "ARF 210.1A" && code != "ARF 210.6" && !p.optional_inputs.contains_key(code) {
+            errors.push(format!("{code}: context without return"));
+        }
+    }
+    if let Some(first) = p.contexts.values().next() {
+        for (code, c) in &p.contexts {
+            if c != first {
+                errors.push(format!("{code}: reporting contexts differ within package"));
+            }
+        }
+        for code in ["ARF 210.1A", "ARF 210.6"].into_iter().chain(p.optional_inputs.keys().map(String::as_str)) {
+            if !p.contexts.contains_key(code) {
+                errors.push(format!("{code}: missing reporting context"));
+            }
+        }
+    }
+    errors
+}
+
+fn evidence_checks(p: &Package) -> Vec<String> {
+    let mut out = Vec::new();
+    let ids: BTreeSet<_> = p.records.iter().map(|r| r.id.as_str()).collect();
+    for (id, reason) in &p.external_sources {
+        if reason.trim().is_empty() || ids.contains(id.as_str()) {
+            out.push(format!("invalid or ambiguous external source {id}"));
+        }
+    }
+    for part in &p.parts {
+        if !ids.contains(part.record.as_str()) && !p.external_sources.contains_key(&part.record) {
+            out.push(format!("contribution from unknown source {}", part.record));
+        }
+    }
+    for parts in p.form_contributions.values() {
+        for part in parts {
+            if !ids.contains(part.source.as_str()) && !p.external_sources.contains_key(&part.source) {
+                out.push(format!("form contribution from unknown source {}", part.source));
+            }
+        }
+    }
+    for key in p.rates.keys() {
+        if !key.ends_with(":weight") {
+            out.push(format!("non-rate input in rates: {key}"));
+        }
+    }
+    let mut seen = BTreeSet::new();
+    for (path, source) in &p.specs {
+        if !seen.insert(path) {
+            out.push(format!("duplicate spec {path}"));
+        }
+        if let Some(code) = path.strip_prefix("forms/") {
+            match arf210::SPECS.iter().find(|(c, _)| *c == code) {
+                Some((_, actual)) if *actual == source => {}
+                _ => out.push(format!("form source does not match executed spec: {path}")),
+            }
+        }
+    }
+    out
+}
+
+fn fcs_problem(c: &Certificate, p: &Package) -> Result<(), String> {
+    use prudence_core::lp::{Rel, Sense};
+    let Some(t) = &c.fcs else {
+        return Ok(());
+    };
+    let n = c.subjects.len();
+    if n == 0
+        || [t.eligible.len(), t.operational.len(), t.covered_rates.len(), t.uncovered_rates.len()]
+            .iter()
+            .any(|x| *x != n)
+    {
+        return Err("FCS evidence has wrong shape".into());
+    }
+    let zero = Q::default();
+    let one = Q::from_integer(1.into());
+    let mut caps = Vec::new();
+    let mut objective = Vec::new();
+    for (i, id) in c.subjects.iter().enumerate() {
+        let balance = &p.records.iter().find(|r| &r.id == id).ok_or("FCS subject missing from ledger")?.balance;
+        if balance < &zero || t.operational[i] < zero || &t.operational[i] > balance {
+            return Err(format!("{id}: invalid FCS balance or operational amount"));
+        }
+        caps.push(if !t.eligible[i] {
+            zero.clone()
+        } else if t.wholesale {
+            t.operational[i].clone()
+        } else {
+            balance.clone()
+        });
+        if t.covered_rates[i] < zero || t.covered_rates[i] > one || t.uncovered_rates[i] < zero || t.uncovered_rates[i] > one {
+            return Err(format!("{id}: invalid counterfactual run-off rate"));
+        }
+        objective.push(if t.wholesale { one.clone() } else { &t.covered_rates[i] - &t.uncovered_rates[i] });
+    }
+    let limit = Q::from_integer(250_000.into());
+    let budget = if t.wholesale { limit } else { limit.min(caps.iter().cloned().sum()) };
+    let mut rows = vec![(vec![one.clone(); n], if t.wholesale { Rel::Le } else { Rel::Eq }, budget)];
+    for (i, cap) in caps.into_iter().enumerate() {
+        let mut lower = vec![zero.clone(); n];
+        lower[i] = -one.clone();
+        let mut upper = vec![zero.clone(); n];
+        upper[i] = one.clone();
+        rows.push((lower, Rel::Le, zero.clone()));
+        rows.push((upper, Rel::Le, cap));
+    }
+    // Compare constraints as a multiset, accepting either orientation of >=.
+    let normalize = |rows: &[(Vec<Q>, Rel, Q)]| {
+        let mut out: Vec<_> = rows
+            .iter()
+            .map(|(a, rel, b)| {
+                if *rel == Rel::Ge {
+                    format!("{:?}|Le|{}", a.iter().map(|q| -q).collect::<Vec<_>>(), -b)
+                } else {
+                    format!("{a:?}|{rel:?}|{b}")
+                }
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    if c.lp.sense != Sense::Max || c.lp.objective != objective || normalize(&c.lp.rows) != normalize(&rows) {
+        return Err("LP differs from reconstructed FCS budget, bounds or objective".into());
+    }
+    Ok(())
+}
+
+fn allocation_bindings(p: &Package) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut owners = BTreeSet::new();
+    let mut names = BTreeSet::new();
+    for c in &p.certificates {
+        if !names.insert(&c.name) {
+            errors.push(format!("duplicate certificate {}", c.name));
+        }
+        if let Err(e) = fcs_problem(c, p) {
+            errors.push(format!("{}: {e}", c.name));
+        }
+        if c.subjects.is_empty() {
+            continue;
+        }
+        if c.subjects.len() != c.solution.x.len() {
+            errors.push(format!("{}: subject vector has wrong shape", c.name));
+            continue;
+        }
+        for (source, allocated) in c.subjects.iter().zip(&c.solution.x) {
+            if !owners.insert(source) {
+                errors.push(format!("{source}: allocated by multiple variables"));
+            }
+            let slices: Vec<_> = p.allocation_slices.iter().filter(|s| &s.source == source).collect();
+            let total: Q = slices.iter().map(|s| s.amount.clone()).sum();
+            let covered: Q = slices.iter().filter(|s| s.covered).map(|s| s.amount.clone()).sum();
+            if &covered != allocated {
+                errors.push(format!("{source}: covered slices {covered} != allocation {allocated}"));
+            }
+            if p.records.iter().find(|r| &r.id == source).is_none_or(|r| r.balance != total) {
+                errors.push(format!("{source}: allocation slices do not conserve the ledger record"));
+            }
+            let mut lcr = BTreeMap::new();
+            let mut nsfr = BTreeMap::new();
+            for s in slices {
+                if s.amount < Q::default() {
+                    errors.push(format!("{source}: negative allocation slice"));
+                }
+                if let Some(item) = &s.lcr_item {
+                    *lcr.entry(item.clone()).or_default() += s.amount.clone();
+                }
+                *nsfr.entry(s.nsfr_cell.clone()).or_default() += &s.amount / million();
+            }
+            let mut actual_lcr = BTreeMap::new();
+            for part in p.parts.iter().filter(|part| &part.record == source && part.stream != Stream::Split) {
+                *actual_lcr.entry(part.item.clone()).or_default() += part.amount.clone();
+            }
+            let mut actual_nsfr = BTreeMap::new();
+            for part in p.form_contributions.get("ARF 210.6").into_iter().flatten().filter(|part| &part.source == source) {
+                *actual_nsfr.entry(part.cell.clone()).or_default() += part.amount.clone();
+            }
+            errors.extend(compare_inputs(&lcr, &actual_lcr).into_iter().map(|e| format!("{source} LCR allocation output: {e}")));
+            errors.extend(compare_inputs(&nsfr, &actual_nsfr).into_iter().map(|e| format!("{source} NSFR allocation output: {e}")));
+        }
+    }
+    for s in &p.allocation_slices {
+        if !owners.contains(&s.source) {
+            errors.push(format!("{}: allocation slice has no certificate variable", s.source));
+        }
+    }
+    errors
+}
+
 fn certificates(p: &Package) -> Vec<String> {
-    p.certificates.iter().filter_map(|c| verify(&c.lp, &c.solution).err().map(|e| format!("{}: {e}", c.name))).collect()
+    p.certificates
+        .iter()
+        .filter_map(|c| {
+            if c.lp.rows.iter().any(|(row, _, _)| row.len() != c.lp.objective.len()) {
+                Some(format!("{}: LP row has the wrong shape", c.name))
+            } else {
+                verify(&c.lp, &c.solution).err().map(|e| format!("{}: {e}", c.name))
+            }
+        })
+        .collect()
 }
 
 fn form_checks(ev: &mut Evaluation, warnings: &mut Vec<String>) -> Vec<String> {
@@ -273,7 +568,11 @@ fn canonical(p: &Package) -> String {
     for (a, b) in &p.gl {
         s += &format!("gl\t{a}\t{b}\n");
     }
-    let mut rs: Vec<String> = p.records.iter().map(|r| format!("record\t{}\t{}\t{}\t{}\n", r.id, r.gl_account, r.balance, r.split)).collect();
+    let mut rs: Vec<String> = p
+        .records
+        .iter()
+        .map(|r| format!("record\t{}\t{}\t{}\t{}\n", r.id, r.gl_account, r.balance, r.split))
+        .collect();
     let mut sl: Vec<String> = p.slices.iter().map(|(r, q)| format!("slice\t{r}\t{q}\n")).collect();
     let mut ps: Vec<String> = p
         .parts
@@ -290,45 +589,162 @@ fn hash_map(m: &BTreeMap<String, Q>) -> String {
     sha256::hex(m.iter().map(|(k, v)| format!("{k}\t{v}\n")).collect::<String>().as_bytes())
 }
 
-/// Run every check; emit the bundle only if all pass.
+/// Check that evidence covers every supplied return and every allocation.
+fn coverage_requirements(p: &Package) -> Vec<String> {
+    let mut errors = Vec::new();
+    if p.contexts.is_empty() {
+        errors.push("reporting context is required".into());
+    }
+    for code in std::iter::once("ARF 210.6").chain(p.optional_inputs.keys().map(String::as_str).filter(|c| *c != "ARF 210.1B")) {
+        if !p.form_contributions.contains_key(code) {
+            errors.push(format!("{code}: contribution evidence is required"));
+        }
+    }
+    for c in &p.certificates {
+        if c.subjects.is_empty() || c.fcs.is_none() {
+            errors.push(format!("{}: supported problem evidence and output binding are required", c.name));
+        }
+    }
+    errors
+}
+
+/// Full-evidence gate: omission of coverage is an error, never a silent downgrade.
+pub fn check_complete(p: &Package) -> Report {
+    check_with_coverage(p, true)
+}
+
+/// Compatibility diagnostics for packages with partial evidence.
 pub fn check(p: &Package) -> Report {
-    let mut warnings = Vec::new();
+    check_with_coverage(p, false)
+}
+
+fn cross_coverage(p: &Package) -> Vec<Value> {
+    let present = |c: &str| matches!(c, "ARF 210.1A" | "ARF 210.6") || p.optional_inputs.contains_key(c);
+    let context = p.contexts.values().next();
+    let mut out = Vec::new();
+    for (rule, forms, regime, level) in [
+        ("nsfr_vs_lcr", vec!["ARF 210.6", "ARF 210.1A"], None, None),
+        ("aud_vs_all", vec!["ARF 210.1B", "ARF 210.1A"], None, None),
+        ("daily_lcr_stock", vec!["ARF 210.5", "ARF 210.1A"], Some("lcr"), None),
+        ("daily_all_lcr_ratio", vec!["ARF 210.5", "ARF 210.1A"], Some("lcr"), Some("level1")),
+        ("daily_aud_lcr_ratio", vec!["ARF 210.5", "ARF 210.1A", "ARF 210.1B"], Some("lcr"), Some("level1")),
+        ("daily_vs_mlh", vec!["ARF 210.5", "ARF 210.2"], Some("mlh"), None),
+        ("funding_plan_vs_assets", vec!["ARF 210.4", "ARF 210.3.1"], None, None),
+        ("funding_plan_vs_liabilities", vec!["ARF 210.4", "ARF 210.3.2"], None, None),
+    ] {
+        let reason = if forms.iter().any(|c| !present(c)) {
+            Some("required form absent")
+        } else if regime.is_some() && context.is_none() {
+            Some("reporting context absent")
+        } else if regime.is_some_and(|r| context.is_some_and(|c| c.regime != r)) {
+            Some("different reporting regime")
+        } else if level.is_some_and(|l| context.is_some_and(|c| c.consolidation != l)) {
+            Some("different consolidation level")
+        } else {
+            None
+        };
+        out.push(json!({"rule": rule, "forms": forms, "status": if reason.is_some() { "skipped" } else { "evaluated" }, "reason": reason}));
+    }
+    out
+}
+
+/// Run every check; emit the bundle only if all pass.
+fn check_with_coverage(p: &Package, complete: bool) -> Report {
+    let mut warnings = vec!["Verification is scoped: source classifications and returns without contribution evidence are not verified".into()];
     let mut checks: Vec<(&'static str, Vec<String>)> = vec![
         ("gl tie-out", gl_tie_out(p)),
         ("conservation", conservation(p)),
         ("no double counting", no_double_counting(p)),
         ("inputs = contributions", inputs_match(p)),
         ("lp certificates", certificates(p)),
+        ("allocation bindings", allocation_bindings(p)),
+        ("evidence integrity", evidence_checks(p)),
+        ("reporting context", context_checks(p)),
     ];
-    let lcr = eval(arf210::lcr_all(), &p.lcr_inputs);
-    let nsfr = eval(arf210::nsfr(), &p.nsfr_inputs);
-    match (lcr, nsfr) {
-        (Ok(mut l), Ok(mut n)) => {
-            let mut f = form_checks(&mut l, &mut warnings);
-            f.extend(form_checks(&mut n, &mut warnings));
-            checks.push(("form checks and theorems", f));
-            let x = arf210::crossform::nsfr_vs_lcr(&n, &l)
-                .into_iter()
-                .filter(|f| !f.warn)
-                .map(|f| format!("{}: {}", f.check_id, f.detail))
-                .collect();
-            checks.push(("cross-form", x));
-            let mut report = Report { checks, warnings, bundle: None };
-            if report.passed() {
-                report.bundle = Some(bundle(p, &l, &report));
-            }
-            report
+    if complete {
+        checks.push(("required coverage", coverage_requirements(p)));
+    }
+    let mut evaluations = BTreeMap::new();
+    let mut errors = Vec::new();
+    let mut failures = Vec::new();
+    for (code, inputs) in [("ARF 210.1A", &p.lcr_inputs), ("ARF 210.6", &p.nsfr_inputs)]
+        .into_iter()
+        .chain(p.optional_inputs.iter().map(|(k, v)| (k.as_str(), v)))
+    {
+        if p.optional_inputs.contains_key(code) && matches!(code, "ARF 210.1A" | "ARF 210.6") {
+            errors.push(format!("duplicate required form {code}"));
+            continue;
         }
-        (l, n) => {
-            let errs = [l.err(), n.err()].into_iter().flatten().collect();
-            checks.push(("form evaluation", errs));
-            Report { checks, warnings, bundle: None }
+        let Some(form) = arf210::forms().iter().find(|f| f.code == code) else {
+            errors.push(format!("unknown form {code}"));
+            continue;
+        };
+        match eval(form, inputs) {
+            Ok(mut ev) => {
+                failures.extend(form_checks(&mut ev, &mut warnings));
+                evaluations.insert(code, ev);
+            }
+            Err(e) => errors.push(format!("{code}: {e}")),
         }
     }
+    checks.push(("form evaluation", errors));
+    checks.push(("form checks and theorems", failures));
+    use arf210::crossform::*;
+    let mut findings = Vec::new();
+    let get = |code| evaluations.get(code);
+    if let (Some(n), Some(l)) = (get("ARF 210.6"), get("ARF 210.1A")) {
+        findings.extend(nsfr_vs_lcr(n, l));
+    }
+    if let (Some(a), Some(l)) = (get("ARF 210.1B"), get("ARF 210.1A")) {
+        findings.extend(aud_vs_all(a, l));
+    }
+    let regime = p.contexts.values().next().map(|c| c.regime.as_str());
+    if let Some(d) = get("ARF 210.5") {
+        if regime == Some("lcr")
+            && let Some(l) = get("ARF 210.1A")
+        {
+            // Daily day-1 ratios are Level 1; stock ties apply at either level.
+            let mut daily = daily_vs_lcr(d, l, get("ARF 210.1B"));
+            if p.contexts.values().next().is_some_and(|c| c.consolidation != "level1") {
+                daily.retain(|f| !f.check_id.starts_with("210.5:5."));
+            }
+            findings.extend(daily);
+        }
+        if regime == Some("mlh")
+            && let Some(m) = get("ARF 210.2")
+        {
+            findings.extend(daily_vs_mlh(d, m));
+        }
+    }
+    if let Some(plan) = get("ARF 210.4") {
+        for code in ["ARF 210.3.1", "ARF 210.3.2"] {
+            if let Some(other) = get(code) {
+                findings.extend(funding_plan_vs_one_maturity(plan, other));
+            }
+        }
+    }
+    let mut cross = Vec::new();
+    for f in findings {
+        let detail = format!("{}: {}", f.check_id, f.detail);
+        if f.warn {
+            warnings.push(detail);
+        } else {
+            cross.push(detail);
+        }
+    }
+    if get("ARF 210.5").is_some() && regime.is_none() {
+        warnings.push("Daily cross-form checks skipped: reporting regime not supplied".into());
+    }
+    checks.push(("cross-form", cross));
+    let mut report = Report { checks, warnings, bundle: None };
+    if report.passed() {
+        report.bundle = Some(bundle(p, &evaluations["ARF 210.1A"], &report, complete));
+    }
+    report
 }
 
-fn bundle(p: &Package, lcr: &Evaluation, r: &Report) -> Value {
-    let specs: BTreeMap<&str, String> = p.specs.iter().map(|(path, src)| (path.as_str(), sha256::hex(src.as_bytes()))).collect();
+fn bundle(p: &Package, lcr: &Evaluation, r: &Report, complete: bool) -> Value {
+    let specs: BTreeMap<&str, String> = arf210::SPECS.iter().map(|(code, src)| (*code, sha256::hex(src.as_bytes()))).collect();
     let spec_version = sha256::hex(specs.iter().map(|(k, v)| format!("{k}\t{v}\n")).collect::<String>().as_bytes());
     let certs: Vec<Value> = p
         .certificates
@@ -344,7 +760,43 @@ fn bundle(p: &Package, lcr: &Evaluation, r: &Report) -> Value {
     let mut manifest = json!({
         "standard": "APS 210 (2025-07-01); ARS 210.0 (2023-03-31)",
         "reporting_date": p.reporting_date,
+        "schema_version": 3,
+        "checker_sources": {
+            "checker": sha256::hex(include_str!("lib.rs").as_bytes()),
+            "json": sha256::hex(include_str!("json.rs").as_bytes()),
+            "crossform": sha256::hex(include_str!("../../arf210/src/crossform.rs").as_bytes()),
+            "form_evaluator": sha256::hex(include_str!("../../prudence-core/src/eval.rs").as_bytes()),
+            "lp_verifier": sha256::hex(include_str!("../../prudence-core/src/lp.rs").as_bytes())
+        },
+        "reporting_context": json::to_json(p)["contexts"],
+        "assurance": if complete { "complete_evidence_consistency" } else { "scoped_consistency" },
         "data_snapshot": sha256::hex(canonical(p).as_bytes()),
+        "package_sha256": sha256::hex(json::to_json(p).to_string().as_bytes()),
+        "declared_sources": p.specs.iter().map(|(path, src)| json!({"path": path, "sha256": sha256::hex(src.as_bytes())})).collect::<Vec<_>>(),
+        "coverage": {
+            "cross_form": cross_coverage(p),
+            "contribution_reconciled": if p.optional_inputs.contains_key("ARF 210.1B") { vec!["ARF 210.1A", "ARF 210.1B"] } else { vec!["ARF 210.1A"] },
+            "additional_contribution_reconciled": p.form_contributions.keys().collect::<Vec<_>>(),
+            "fcs_problem_evidence_missing": p.certificates.iter().filter(|c| c.fcs.is_none()).map(|c| &c.name).collect::<Vec<_>>(),
+            "fcs_problem_reconstructed": p.certificates.iter().filter(|c| c.fcs.is_some()).map(|c| &c.name).collect::<Vec<_>>(),
+            "allocation_bound": p.certificates.iter().filter(|c| !c.subjects.is_empty()).map(|c| &c.name).collect::<Vec<_>>(),
+            "allocation_binding_missing": p.certificates.iter().filter(|c| c.subjects.is_empty()).map(|c| &c.name).collect::<Vec<_>>(),
+            "contribution_evidence_missing": std::iter::once("ARF 210.6")
+                .chain(p.optional_inputs.keys().map(String::as_str).filter(|c| *c != "ARF 210.1B"))
+                .filter(|c| !p.form_contributions.contains_key(*c)).collect::<Vec<_>>(),
+            "form_checks": std::iter::once("ARF 210.1A").chain(std::iter::once("ARF 210.6")).chain(p.optional_inputs.keys().map(String::as_str)).collect::<Vec<_>>(),
+            "undefined_cross_form_operands": "equality rules skip undefined operands; see lcr_status for the primary ratio",
+            "unverified": ["source completeness and classification", "resolved FCS source attributes and counterfactual classifications", "signed overlays"],
+            "reporting_context_verified": !p.contexts.is_empty(),
+            "daily_cross_form": match p.contexts.values().next() {
+                None => "skipped: missing context",
+                Some(c) if c.regime == "mlh" => "MLH comparisons when forms present",
+                Some(c) if c.consolidation == "level2" => "LCR stock comparisons only; day-1 Level 1 ratios skipped",
+                Some(_) => "LCR comparisons when forms present",
+            },
+            "external_sources": p.external_sources,
+            "missing_inputs": "zero with spec defaults"
+        },
         "spec_version": spec_version,
         "specs": specs,
         "certificates": certs,
@@ -353,10 +805,14 @@ fn bundle(p: &Package, lcr: &Evaluation, r: &Report) -> Value {
             "ARF 210.1A": hash_map(&p.lcr_inputs),
             "ARF 210.6": hash_map(&p.nsfr_inputs),
         },
-        "lcr_percent": lcr.q("30").to_string(),
+        "lcr_percent": lcr.get("30").num().map(ToString::to_string),
+        "lcr_status": if lcr.get("30").num().is_some() { "defined" } else { "undefined" },
         "checks": r.checks.iter().map(|(c, _)| *c).collect::<Vec<_>>(),
         "warnings": r.warnings,
     });
+    for (code, inputs) in &p.optional_inputs {
+        manifest["returns"][code] = json!(hash_map(inputs));
+    }
     let id = sha256::hex(manifest.to_string().as_bytes());
     manifest["bundle_id"] = json!(id);
     manifest

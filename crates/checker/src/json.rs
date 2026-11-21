@@ -8,7 +8,7 @@ use prudence_core::Q;
 use prudence_core::lp::{Lp, Rel, Sense, Solution};
 use serde_json::{Value, json};
 
-use crate::{Certificate, Package, Part, Record, Stream};
+use crate::{AllocationSlice, Certificate, FcsTerms, FormContribution, Package, Part, Record, ReportingContext, Stream};
 
 fn q(x: &Q) -> Value {
     Value::String(x.to_string())
@@ -25,6 +25,9 @@ fn qmap(m: &BTreeMap<String, Q>) -> Value {
 pub fn to_json(p: &Package) -> Value {
     json!({
         "reporting_date": p.reporting_date,
+        "contexts": p.contexts.iter().map(|(code, c)| (code.clone(), json!({
+            "entity": c.entity, "reporting_date": c.reporting_date, "consolidation": c.consolidation, "regime": c.regime
+        }))).collect::<serde_json::Map<_, _>>(),
         "gl": qmap(&p.gl),
         "records": p.records.iter().map(|r| json!({
             "id": r.id, "gl_account": r.gl_account, "balance": q(&r.balance), "split": r.split
@@ -35,10 +38,18 @@ pub fn to_json(p: &Package) -> Value {
             "stream": format!("{:?}", x.stream)
         })).collect::<Vec<_>>(),
         "rates": qmap(&p.rates),
+        "external_sources": p.external_sources,
+        "form_contributions": p.form_contributions.iter().map(|(code, parts)| (code.clone(),
+            Value::Array(parts.iter().map(|p| json!({"source": p.source, "cell": p.cell, "amount": q(&p.amount)})).collect())
+        )).collect::<serde_json::Map<_, _>>(),
         "lcr_inputs": qmap(&p.lcr_inputs),
         "nsfr_inputs": qmap(&p.nsfr_inputs),
+        "optional_inputs": p.optional_inputs.iter().map(|(k, v)| (k.clone(), qmap(v))).collect::<serde_json::Map<_, _>>(),
         "certificates": p.certificates.iter().map(|c| json!({
             "name": c.name,
+            "subjects": c.subjects,
+            "fcs": c.fcs.as_ref().map(|t| json!({"wholesale": t.wholesale, "eligible": t.eligible,
+                "operational": qs(&t.operational), "covered_rates": qs(&t.covered_rates), "uncovered_rates": qs(&t.uncovered_rates)})),
             "lp": {
                 "sense": if c.lp.sense == Sense::Max { "max" } else { "min" },
                 "objective": qs(&c.lp.objective),
@@ -49,6 +60,10 @@ pub fn to_json(p: &Package) -> Value {
                 })).collect::<Vec<_>>(),
             },
             "solution": { "x": qs(&c.solution.x), "value": q(&c.solution.value), "duals": qs(&c.solution.duals) },
+        })).collect::<Vec<_>>(),
+        "allocation_slices": p.allocation_slices.iter().map(|s| json!({
+            "source": s.source, "amount": q(&s.amount), "covered": s.covered,
+            "lcr_item": s.lcr_item, "nsfr_cell": s.nsfr_cell
         })).collect::<Vec<_>>(),
         "assumptions": p.assumptions.iter().map(|(a, b, c, d)| json!([a, b, c, d])).collect::<Vec<_>>(),
         "specs": p.specs.iter().map(|(path, src)| json!({ "path": path, "source": src })).collect::<Vec<_>>(),
@@ -80,6 +95,25 @@ fn rmap(v: &Value) -> R<BTreeMap<String, Q>> {
 pub fn from_json(v: &Value) -> R<Package> {
     Ok(Package {
         reporting_date: s(get(v, "reporting_date")?)?,
+        contexts: match v.get("contexts") {
+            None => BTreeMap::new(),
+            Some(x) => x
+                .as_object()
+                .ok_or("contexts: expected object")?
+                .iter()
+                .map(|(code, c)| {
+                    Ok((
+                        code.clone(),
+                        ReportingContext {
+                            entity: s(get(c, "entity")?)?,
+                            reporting_date: s(get(c, "reporting_date")?)?,
+                            consolidation: s(get(c, "consolidation")?)?,
+                            regime: s(get(c, "regime")?)?,
+                        },
+                    ))
+                })
+                .collect::<R<_>>()?,
+        },
         gl: rmap(get(v, "gl")?)?,
         records: arr(get(v, "records")?)?
             .iter()
@@ -116,9 +150,50 @@ pub fn from_json(v: &Value) -> R<Package> {
                 })
             })
             .collect::<R<_>>()?,
+        form_contributions: match v.get("form_contributions") {
+            None => BTreeMap::new(),
+            Some(x) => x
+                .as_object()
+                .ok_or("form_contributions: expected object")?
+                .iter()
+                .map(|(code, parts)| {
+                    Ok((
+                        code.clone(),
+                        arr(parts)?
+                            .iter()
+                            .map(|p| {
+                                Ok(FormContribution {
+                                    source: s(get(p, "source")?)?,
+                                    cell: s(get(p, "cell")?)?,
+                                    amount: rq(get(p, "amount")?)?,
+                                })
+                            })
+                            .collect::<R<_>>()?,
+                    ))
+                })
+                .collect::<R<_>>()?,
+        },
+        external_sources: match v.get("external_sources") {
+            None => BTreeMap::new(),
+            Some(x) => x
+                .as_object()
+                .ok_or("external_sources: expected object")?
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), s(v)?)))
+                .collect::<R<_>>()?,
+        },
         rates: rmap(get(v, "rates")?)?,
         lcr_inputs: rmap(get(v, "lcr_inputs")?)?,
         nsfr_inputs: rmap(get(v, "nsfr_inputs")?)?,
+        optional_inputs: match v.get("optional_inputs") {
+            None => BTreeMap::new(),
+            Some(x) => x
+                .as_object()
+                .ok_or("optional_inputs: expected an object")?
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), rmap(v)?)))
+                .collect::<R<_>>()?,
+        },
         certificates: arr(get(v, "certificates")?)?
             .iter()
             .map(|c| {
@@ -126,8 +201,29 @@ pub fn from_json(v: &Value) -> R<Package> {
                 let sol = get(c, "solution")?;
                 Ok(Certificate {
                     name: s(get(c, "name")?)?,
+                    subjects: match c.get("subjects") {
+                        None => vec![],
+                        Some(v) => arr(v)?.iter().map(s).collect::<R<_>>()?,
+                    },
+                    fcs: match c.get("fcs") {
+                        None | Some(Value::Null) => None,
+                        Some(t) => Some(FcsTerms {
+                            wholesale: get(t, "wholesale")?.as_bool().ok_or("wholesale: expected bool")?,
+                            eligible: arr(get(t, "eligible")?)?
+                                .iter()
+                                .map(|v| v.as_bool().ok_or("eligible: expected bool".into()))
+                                .collect::<R<_>>()?,
+                            operational: rqs(get(t, "operational")?)?,
+                            covered_rates: rqs(get(t, "covered_rates")?)?,
+                            uncovered_rates: rqs(get(t, "uncovered_rates")?)?,
+                        }),
+                    },
                     lp: Lp {
-                        sense: if s(get(lp, "sense")?)? == "max" { Sense::Max } else { Sense::Min },
+                        sense: match s(get(lp, "sense")?)?.as_str() {
+                            "max" => Sense::Max,
+                            "min" => Sense::Min,
+                            other => return Err(format!("unknown LP sense {other}")),
+                        },
                         objective: rqs(get(lp, "objective")?)?,
                         rows: arr(get(lp, "rows")?)?
                             .iter()
@@ -150,6 +246,24 @@ pub fn from_json(v: &Value) -> R<Package> {
                 })
             })
             .collect::<R<_>>()?,
+        allocation_slices: match v.get("allocation_slices") {
+            None => vec![],
+            Some(v) => arr(v)?
+                .iter()
+                .map(|v| {
+                    Ok(AllocationSlice {
+                        source: s(get(v, "source")?)?,
+                        amount: rq(get(v, "amount")?)?,
+                        covered: get(v, "covered")?.as_bool().ok_or("covered: expected bool")?,
+                        lcr_item: match get(v, "lcr_item")? {
+                            Value::Null => None,
+                            v => Some(s(v)?),
+                        },
+                        nsfr_cell: s(get(v, "nsfr_cell")?)?,
+                    })
+                })
+                .collect::<R<_>>()?,
+        },
         assumptions: arr(get(v, "assumptions")?)?
             .iter()
             .map(|x| match arr(x)?.as_slice() {

@@ -82,8 +82,7 @@ pub fn assemble(parts: &[Part], rates: &BTreeMap<String, Q>) -> Result<BTreeMap<
         let (mut out, mut out_w, mut inn, mut inn_w) = Default::default();
         if let Some(m) = by_ccy.get(&row) {
             let ev = eval(m)?;
-            (out, out_w, inn, inn_w) =
-                (ev.q("18").clone(), ev.q("18:weighted").clone(), ev.q("23").clone(), ev.q("23:weighted").clone());
+            (out, out_w, inn, inn_w) = (ev.q("18").clone(), ev.q("18:weighted").clone(), ev.q("23").clone(), ev.q("23:weighted").clone());
         }
         inputs.insert(format!("18.{row}"), out);
         inputs.insert(format!("18.{row}:weighted"), out_w);
@@ -135,11 +134,13 @@ pub struct Return {
     pub inputs: BTreeMap<String, Q>,
     /// ARF 210.6 inputs from the modules that model it, AUD millions.
     pub nsfr_inputs: BTreeMap<String, Q>,
+    pub nsfr_parts: Vec<checker::FormContribution>,
     /// Balance-sheet records: (id, kind, carrying amount, split?).
     pub records: Vec<(String, &'static str, Q, bool)>,
     /// (record, amount) per slice of split records.
     pub slices: Vec<(String, Q)>,
     pub certificates: Vec<checker::Certificate>,
+    pub allocation_slices: Vec<checker::AllocationSlice>,
     /// (module, subject, attribute) -> (assumed value, reason).
     pub assumptions: Vec<(&'static str, String, String, String, String)>,
 }
@@ -150,20 +151,36 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     let mut parts = Vec::new();
     let mut assumptions = Vec::new();
     let mut push = |module: &'static str, record: &str, item: &str, amount: Q, currency: String, stream| {
-        parts.push(Part { module, record: record.into(), item: item.into(), currency, amount, stream });
+        parts.push(Part {
+            module,
+            record: record.into(),
+            item: item.into(),
+            currency,
+            amount,
+            stream,
+        });
     };
 
     let mut nsfr: BTreeMap<String, Q> = BTreeMap::new();
-    let mut nsfr_add = |item: &str, col: &str, q: &Q| {
+    let mut nsfr_parts = Vec::new();
+    let mut nsfr_add = |source: &str, item: &str, col: &str, q: &Q| {
         let k = if col == "amount" { item.to_string() } else { format!("{item}:{col}") };
+        nsfr_parts.push(checker::FormContribution {
+            source: source.into(),
+            cell: k.clone(),
+            amount: q / million(),
+        });
         *nsfr.entry(k).or_default() += q / million();
     };
     let mut records = Vec::new();
     let mut slices = Vec::new();
     let mut certificates = Vec::new();
+    let mut allocation_slices = Vec::new();
     let mut certify = |module: &str, allocs: Vec<prudence_core::interp::Allocation>| {
         for a in allocs {
             certificates.push(checker::Certificate {
+                subjects: a.subjects,
+                fcs: None,
                 name: format!("{module}/{}/{}", a.alloc, a.group),
                 lp: a.lp,
                 solution: a.solution,
@@ -171,14 +188,30 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         }
     };
 
-    let c = deposits::classify(&bank.retail, &deposits::Params { mode, ..deposits::Params::new(reporting_date) })
-        .map_err(|e| format!("{e:?}"))?;
+    let c = deposits::classify(
+        &bank.retail,
+        &deposits::Params {
+            mode,
+            ..deposits::Params::new(reporting_date)
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
     for a in &bank.retail.accounts {
         records.push((a.id.clone(), "retail", a.balance.amount().clone(), true));
     }
+    let allocated: std::collections::BTreeSet<_> = c.allocations.iter().flat_map(|a| a.subjects.iter()).collect();
     for s in &c.slices {
+        if allocated.contains(&s.account_id) {
+            allocation_slices.push(checker::AllocationSlice {
+                source: s.account_id.clone(),
+                amount: s.amount.amount().clone(),
+                covered: s.covered,
+                lcr_item: s.lcr_item.map(str::to_string),
+                nsfr_cell: format!("{}:{}", s.nsfr_item, s.nsfr_bucket),
+            });
+        }
         slices.push((s.account_id.clone(), s.amount.amount().clone()));
-        nsfr_add(s.nsfr_item, s.nsfr_bucket, s.amount.amount());
+        nsfr_add(&s.account_id, s.nsfr_item, s.nsfr_bucket, s.amount.amount());
         if let Some(i) = s.lcr_item {
             push("retail", &s.account_id, i, s.amount.amount().clone(), ccy(&s.account_id), Stream::Both);
         }
@@ -187,15 +220,21 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     for a in &c.assumptions {
         assumptions.push(("retail", a.subject.clone(), a.attribute.to_string(), a.assumed.clone(), a.reason.clone()));
     }
-    let (ws, allocs) =
-        deposits::wholesale::run_with_certificates(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, mode)?;
+    let (ws, allocs) = deposits::wholesale::run_with_certificates(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, mode)?;
     certify("wholesale", allocs);
     for d in &bank.wholesale_deposits {
         records.push((d.id.clone(), "wholesale", d.balance.clone(), true));
     }
     for s in ws {
+        allocation_slices.push(checker::AllocationSlice {
+            source: s.account.clone(),
+            amount: s.amount.clone(),
+            covered: s.covered,
+            lcr_item: s.lcr_item.clone(),
+            nsfr_cell: format!("{}:{}", s.nsfr.0, s.nsfr.1),
+        });
         slices.push((s.account.clone(), s.amount.clone()));
-        nsfr_add(&s.nsfr.0, &s.nsfr.1, &s.amount);
+        nsfr_add(&s.account, &s.nsfr.0, &s.nsfr.1, &s.amount);
         if let Some(i) = &s.lcr_item {
             push("wholesale", &s.account, i, s.amount.clone(), ccy(&s.account), Stream::Both);
         }
@@ -231,7 +270,7 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     }
     for (id, item, bucket, q) in &r.slices {
         slices.push((id.clone(), q.clone()));
-        nsfr_add(item, bucket, q);
+        nsfr_add(id, item, bucket, q);
     }
     for (id, i, q) in r.parts {
         push("loans", &id, &i, q, ccy(&id), Stream::Both);
@@ -241,8 +280,8 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
     for (k, t) in bank.derivatives.trades.iter().enumerate() {
         records.push((format!("trade{k}"), "derivative", t.mtm.clone(), false));
     }
-    for (item, q) in &r.nsfr {
-        nsfr_add(item, "amount", q);
+    for (id, item, q) in &r.nsfr_parts {
+        nsfr_add(id, item, "amount", q);
     }
     for (id, i, q) in r.parts {
         let stream = if ["13.1", "21.1", "13.6"].contains(&i.as_str()) { Stream::Total } else { Stream::Both };
@@ -252,8 +291,55 @@ pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<
         push("derivatives", &id, &i, q, c, Stream::Split);
     }
     keep("derivatives", r.assumptions);
+    let resolved_bool = |v: &prudence_core::uncertain::Uncertain<bool>| v.known().copied().unwrap_or(mode == Mode::Optimistic);
+    for cert in &mut certificates {
+        let wholesale = cert.name.starts_with("wholesale/");
+        let mut t = checker::FcsTerms {
+            wholesale,
+            eligible: vec![],
+            operational: vec![],
+            covered_rates: vec![],
+            uncovered_rates: vec![],
+        };
+        for id in &cert.subjects {
+            if wholesale {
+                let d = bank.wholesale_deposits.iter().find(|d| &d.id == id).ok_or("missing wholesale FCS subject")?;
+                t.eligible.push(resolved_bool(&d.fcs_eligible));
+                let op = if resolved_bool(&d.operational_service) {
+                    d.operational_balance
+                        .known()
+                        .cloned()
+                        .unwrap_or_else(|| if mode == Mode::Optimistic { d.balance.clone() } else { Q::default() })
+                        .min(d.balance.clone())
+                } else {
+                    Q::default()
+                };
+                t.operational.push(op);
+                t.covered_rates.push(Q::default());
+                t.uncovered_rates.push(Q::default());
+            } else {
+                let d = bank.retail.accounts.iter().find(|d| &d.id == id).ok_or("missing retail FCS subject")?;
+                t.eligible.push(resolved_bool(&d.fcs_eligible));
+                t.operational.push(Q::default());
+                let (covered, uncovered) = &c.fcs_rates[id];
+                t.covered_rates.push(covered.clone());
+                t.uncovered_rates.push(uncovered.clone());
+            }
+        }
+        cert.fcs = Some(t);
+    }
     let inputs = assemble(&parts, &BTreeMap::new())?;
-    Ok(Return { parts, inputs, nsfr_inputs: nsfr, records, slices, certificates, assumptions })
+    Ok(Return {
+        parts,
+        inputs,
+        nsfr_inputs: nsfr,
+        nsfr_parts,
+        records,
+        slices,
+        certificates,
+        allocation_slices,
+        assumptions,
+    })
 }
 
 /// The checker's view of a return: plain data, nothing it has to trust.
@@ -263,8 +349,7 @@ pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker:
         Stream::Total => checker::Stream::Total,
         Stream::Split => checker::Stream::Split,
     };
-    let mut specs: Vec<(String, String)> =
-        arf210::SPECS.iter().map(|(code, src)| (format!("forms/{code}"), src.to_string())).collect();
+    let mut specs: Vec<(String, String)> = arf210::SPECS.iter().map(|(code, src)| (format!("forms/{code}"), src.to_string())).collect();
     for (path, src) in [
         ("specs/deposits/retail_sme.prd", deposits::prudence::SOURCE),
         ("specs/deposits/wholesale.prd", deposits::wholesale::SOURCE),
@@ -275,8 +360,9 @@ pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker:
     ] {
         specs.push((path.into(), src.into()));
     }
-    checker::Package {
+    let mut package = checker::Package {
         reporting_date: reporting_date.to_string(),
+        contexts: BTreeMap::new(),
         gl: bank.gl.clone(),
         records: ret
             .records
@@ -304,7 +390,42 @@ pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker:
         lcr_inputs: ret.inputs.clone(),
         nsfr_inputs: ret.nsfr_inputs.clone(),
         certificates: ret.certificates.clone(),
-        assumptions: ret.assumptions.iter().map(|(m, s, a, v, w)| (format!("{m}/{s}"), a.clone(), v.clone(), w.clone())).collect(),
+        allocation_slices: ret.allocation_slices.clone(),
+        assumptions: ret
+            .assumptions
+            .iter()
+            .map(|(m, s, a, v, w)| (format!("{m}/{s}"), a.clone(), v.clone(), w.clone()))
+            .collect(),
         specs,
+        optional_inputs: BTreeMap::new(),
+        form_contributions: [("ARF 210.6".into(), ret.nsfr_parts.clone())].into(),
+        external_sources: ret
+            .parts
+            .iter()
+            .filter(|p| !ret.records.iter().any(|(id, _, _, _)| id == &p.record))
+            .map(|p| (p.record.clone(), format!("{} aggregate or off-balance-sheet source; not GL reconciled", p.module)))
+            .collect(),
+    };
+    for part in &ret.nsfr_parts {
+        if !package.records.iter().any(|r| r.id == part.source) {
+            package
+                .external_sources
+                .entry(part.source.clone())
+                .or_insert_with(|| "NSFR netting-set source; not GL reconciled".into());
+        }
     }
+    package
+        .optional_inputs
+        .insert("ARF 210.1B".into(), checker::derive_aud_inputs(&package.parts, &package.rates));
+    package
+}
+
+/// Attach the caller's entity, consolidation level and regime to every return.
+/// The checker validates these declarations and rejects mixed contexts.
+pub fn package_with_context(bank: &Bank, ret: &Return, context: checker::ReportingContext, date: NaiveDate) -> checker::Package {
+    let mut p = package(bank, ret, date);
+    for code in ["ARF 210.1A", "ARF 210.6"].into_iter().chain(p.optional_inputs.keys().map(String::as_str)) {
+        p.contexts.insert(code.into(), context.clone());
+    }
+    p
 }

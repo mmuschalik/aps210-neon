@@ -181,6 +181,7 @@ pub struct Run {
     pub lcr: BTreeMap<String, Q>,
     /// ARF 210.6 amounts (AUD).
     pub nsfr: BTreeMap<String, Q>,
+    pub nsfr_parts: Vec<(String, String, Q)>,
     /// Non-zero (netting set, item, AUD) contributions behind `lcr`; the
     /// lookback (13.6) is portfolio-wide, under the id "lookback".
     pub parts: Vec<(String, String, Q)>,
@@ -205,6 +206,7 @@ pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mo
     let mut lcr: BTreeMap<String, Q> = LCR_ITEMS.iter().map(|i| (i.to_string(), Q::default())).collect();
     let mut nsfr: BTreeMap<String, Q> = NSFR_ITEMS.iter().map(|i| (i.to_string(), Q::default())).collect();
     let mut parts = Vec::new();
+    let mut nsfr_parts = Vec::new();
     let mut by_currency = Vec::new();
     for (k, set) in book.sets.iter().enumerate() {
         let s = Val::Rec("NettingSet".into(), k);
@@ -230,7 +232,9 @@ pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mo
             }
         }
         for (item, total) in nsfr.iter_mut() {
-            *total += num(it.call_fn("nsfr", vec![s.clone(), Val::Str(item.clone())])?)?;
+            let q = num(it.call_fn("nsfr", vec![s.clone(), Val::Str(item.clone())])?)?;
+            if q != Q::default() { nsfr_parts.push((set.id.clone(), item.clone(), q.clone())); }
+            *total += q;
         }
     }
     let lookback = num(it.call_fn("largest_collateral_flow", vec![])?)?;
@@ -245,7 +249,7 @@ pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mo
             by_currency.push(("lookback".into(), "13.6".into(), c.clone(), q));
         }
     }
-    Ok(Run { lcr, nsfr, parts, by_currency, assumptions: it.assumptions() })
+    Ok(Run { lcr, nsfr, nsfr_parts, parts, by_currency, assumptions: it.assumptions() })
 }
 
 /// In AUD millions (the forms' unit).
