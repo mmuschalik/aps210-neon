@@ -59,6 +59,8 @@ pub struct Facility {
     pub drawable_within_30_days: Uncertain<bool>,
     pub mortgage_redraw: bool,
     pub funds_vehicle: bool,
+    /// Facility size, drawn plus undrawn (ARF 210.5 item 3 percentages).
+    pub limit: Option<Q>,
 }
 
 #[derive(Clone, Debug)]

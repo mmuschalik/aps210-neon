@@ -77,6 +77,7 @@ fn bank(with_fx_swap: bool) -> Bank {
         drawable_within_30_days: Uncertain::Known(true),
         mortgage_redraw: false,
         funds_vehicle: false,
+        limit: Some(m(200)),
     });
     b.loans.push(loans::Loan {
         id: "usd-loan".into(),
@@ -508,6 +509,9 @@ fn daily_history_and_funding_plan() {
     assert!(daily.contains_key("6.4:d15"));
     assert_eq!(daily["3.4:outflow"], Q::from_integer(10.into())); // committed credit facility drawn
     assert_eq!(daily["3.4:undrawn"], Q::from_integer(80.into()));
+    assert_eq!(daily["3.4:outflow_pct"], Q::from_integer(5.into())); // 10 of a 200m facility
+    assert_eq!(daily["3.6:outflow_pct"], Q::from_integer(5.into()));
+    assert_eq!(daily["3.1:outflow_pct"], Q::from_integer(20.into())); // 10 on 50
     assert_eq!(daily["8.2:number"], Q::from_integer(1.into()));
     assert_eq!(daily["8.2.1:amount"], Q::from_integer(5.into()));
     assert!(acct.is_some(), "the generated book has a notice account");

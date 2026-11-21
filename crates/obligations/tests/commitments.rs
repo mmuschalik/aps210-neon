@@ -22,6 +22,7 @@ fn facility(id: &str, cp: Counterparty, kind: FacilityKind, committed: bool, und
         drawable_within_30_days: Uncertain::Known(true),
         mortgage_redraw: false,
         funds_vehicle: false,
+        limit: None,
     }
 }
 
@@ -136,6 +137,7 @@ fn missing_data_never_lowers_outflows() {
                     .clone(),
                 mortgage_redraw: next(5) == 0,
                 funds_vehicle: next(6) == 0,
+                limit: None,
             })
             .collect();
         let book = Book { facilities, ..Book::default() };

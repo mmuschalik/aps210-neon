@@ -6,8 +6,8 @@
 //! from earlier daily snapshots and the ARF 210.4 forecasts from the funding
 //! plan. Each cell comes with per-source contribution evidence.
 //!
-//! ARF 210.5 percentages that need facility limits (items 3.x column 2) are
-//! not computed: the facility records hold undrawn amounts only.
+//! ARF 210.5 item 3 percentages are computed where facility limits are
+//! recorded (`Facility::limit`).
 
 use std::collections::BTreeMap;
 
@@ -496,7 +496,14 @@ pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Res
         // (disbursements positive, repayments negative; ARS p.130).
         let now: Q = bank.loans.iter().map(|l| l.balance.clone()).sum();
         let then: Q = prior.loans.iter().map(|l| l.balance.clone()).sum();
-        a.add(&src, "3.1", "outflow", &(now - then));
+        a.add(&src, "3.1", "outflow", &(&now - &then));
+        // Percentages (ARS p.130): 3.1 of the principal outstanding five days
+        // before; 3.2-3.5 of the facility sizes five days before; 3.6 their
+        // size-weighted average.
+        let pct = |out: &Q, base: &Q| (base != &Q::default()).then(|| Q::from_integer(100.into()) * out / base);
+        if let Some(p) = pct(&(&now - &then), &then) {
+            a.0.push(checker::FormContribution { source: src.clone(), cell: "3.1:outflow_pct".into(), amount: p });
+        }
         // Item 8.1: notices given on minimum notice deposits over the five
         // days (number and value); the percentage of the average balance of
         // notice deposits over the five days, when all five days are known.
@@ -537,6 +544,7 @@ pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Res
         // Items 3.2-3.5: net drawings under facilities over the five days -
         // the fall in each facility's undrawn amount (column 1); the undrawn
         // amount today (column 3).
+        let mut sizes: BTreeMap<&str, (Q, Q, bool)> = BTreeMap::new();
         for f in &bank.commitments.facilities {
             use obligations::FacilityKind;
             let row = if !(f.committed || f.mortgage_redraw) {
@@ -550,8 +558,27 @@ pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Res
             };
             a.add(&f.id, row, "undrawn", &f.undrawn);
             if let Some(before) = prior.commitments.facilities.iter().find(|g| g.id == f.id) {
-                a.add(&src, row, "outflow", &(&before.undrawn - &f.undrawn));
+                let drawn = &before.undrawn - &f.undrawn;
+                a.add(&src, row, "outflow", &drawn);
+                let e = sizes.entry(row).or_insert((Q::default(), Q::default(), true));
+                e.0 += drawn.clone();
+                match &before.limit {
+                    Some(l) => e.1 += l.clone(),
+                    None => e.2 = false,
+                }
             }
+        }
+        let (mut tot_out, mut tot_size, mut all_known) = (Q::default(), Q::default(), true);
+        for (row, (out, size, known)) in &sizes {
+            tot_out += out.clone();
+            tot_size += size.clone();
+            all_known &= *known;
+            if *known && let Some(p) = pct(out, size) {
+                a.0.push(checker::FormContribution { source: src.clone(), cell: format!("{row}:outflow_pct"), amount: p });
+            }
+        }
+        if all_known && let Some(p) = pct(&tot_out, &tot_size) {
+            a.0.push(checker::FormContribution { source: src.clone(), cell: "3.6:outflow_pct".into(), amount: p });
         }
         // Items 8.2-8.3: early repayment requests over the five days, number,
         // value, approved, and value as a percentage of the five-day average
