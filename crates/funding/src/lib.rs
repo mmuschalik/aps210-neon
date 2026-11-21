@@ -186,3 +186,9 @@ pub fn run(book: &Book, reporting_date: NaiveDate, mode: Mode) -> Result<Run, St
     }
     Ok(Run { cells, assumptions: it.assumptions() })
 }
+
+/// The Lean model generated from the spec, as written to
+/// lean/Prudence/Funding.lean.
+pub fn lean_source() -> Result<String, String> {
+    prudence_core::syntax::lean::generate(module(), &[])
+}

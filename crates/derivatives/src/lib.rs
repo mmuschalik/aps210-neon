@@ -257,3 +257,9 @@ pub fn arf_inputs(m: &BTreeMap<String, Q>) -> BTreeMap<String, Q> {
     let million = Q::from_integer(1_000_000.into());
     m.iter().map(|(k, v)| (k.clone(), v / &million)).collect()
 }
+
+/// The Lean model generated from the spec, as written to
+/// lean/Prudence/Derivatives.lean.
+pub fn lean_source() -> Result<String, String> {
+    prudence_core::syntax::lean::generate(module(), &[])
+}

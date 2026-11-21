@@ -53,6 +53,8 @@ struct Gen<'m> {
     /// Lean type of money and rates: `Int` (whole dollars), or `Rat` when
     /// the module has fractional rates (exact, like the interpreter).
     num: &'static str,
+    /// Compiling a partition output: NSFR buckets are the factor table's Nat.
+    in_output: std::cell::Cell<bool>,
 }
 
 fn kw(n: &str) -> String {
@@ -88,6 +90,7 @@ impl<'m> Gen<'m> {
             world_fns: BTreeSet::new(),
             moded: BTreeSet::new(),
             num: "Int",
+            in_output: std::cell::Cell::new(false),
         };
         let has_rate = |t: &Type| matches!(t, Type::Named { name, .. } if name == "Rate");
         if m.decls.iter().any(|d| match &d.kind {
@@ -283,8 +286,14 @@ impl<'m> Gen<'m> {
             Pat::Wild => "_".into(),
             Pat::Bind(n) => kw(n),
             Pat::Tuple(ps) => format!("({})", ps.iter().map(|p| self.pat(p)).collect::<R<Vec<_>>>()?.join(", ")),
+            // `Some(x)` under `if let`: the `some` is already in place.
+            Pat::Ctor(c, ps) if c == "Some" && ps.len() == 1 => self.pat(&ps[0])?,
             Pat::Ctor(c, ps) if self.events.contains_key(c) => {
-                format!("⟨{}⟩", ps.iter().map(|p| self.pat(p)).collect::<R<Vec<_>>>()?.join(", "))
+                // Positional over the declared fields, then `valid`, `recorded`.
+                let mut xs = ps.iter().map(|p| self.pat(p)).collect::<R<Vec<_>>>()?;
+                xs.resize(self.events[c].len(), "_".into());
+                xs.extend(["_".to_string(), "_".to_string()]);
+                format!("⟨{}⟩", xs.join(", "))
             }
             Pat::Ctor(c, ps) => {
                 let mut s = self.ctor(c, false);
@@ -320,6 +329,8 @@ impl<'m> Gen<'m> {
                 _ if self.params.contains(n) => format!("W.{n}"),
                 _ if self.world_fns.contains(n) => self.world_ref(n),
                 _ if self.is_ctor(n) => self.ctor(n, true),
+                // Every record of a data type (world field).
+                _ if self.data.contains_key(n) => format!("W.{n}_all"),
                 _ => return Err(format!("cannot compile name `{n}`")),
             },
             Expr::List(xs) => format!("[{}]", xs.iter().map(ex).collect::<R<Vec<_>>>()?.join(", ")),
@@ -486,13 +497,20 @@ impl<'m> Gen<'m> {
                 Expr::Num(n, _) if !n.contains('.') => Ok(format!("({} ++ \".{n}\")", ex(&args[0].value)?)),
                 _ => Ok(format!("(s!\"{{{}}}.{{{}}}\")", ex(&args[0].value)?, ex(&args[1].value)?)),
             },
-            "bucket" => Ok(format!("(W.bucket {})", ex(&args[0].value)?)),
+            "bucket" if self.in_output.get() => Ok(format!("(W.bucket {})", ex(&args[0].value)?)),
+            "bucket" => Ok(format!("(bucketName (W.bucket {}))", ex(&args[0].value)?)),
             "add_months" => Ok(format!("(addMonths {} {})", ex(&args[0].value)?, ex(&args[1].value)?)),
             "cycle" => Ok(format!("(cycle {} {} {})", ex(&args[0].value)?, ex(&args[1].value)?, ex(&args[2].value)?)),
             "pow" => Ok(format!("(qpow {} {})", ex(&args[0].value)?, ex(&args[1].value)?)),
             "solo" => Ok(format!("(W.solo {})", ex(&args[0].value)?)),
             "min" | "max" if args.len() == 2 => Ok(format!("({name} {} {})", ex(&args[0].value)?, ex(&args[1].value)?)),
             "all" => comp(&|v, src, filt, body| format!("(List.all {} (fun {v} => {body}))", filtered(v, src, filt))),
+            "distinct" => comp(&|v, src, filt, body| format!("(List.eraseDups (List.map (fun {v} => {body}) {}))", filtered(v, src, filt))),
+            // max / min over a comprehension: the interpreter rejects an empty
+            // list; here an empty list gives 0.
+            "max" | "min" if args.len() == 1 => comp(&|v, src, filt, body| {
+                format!("(match List.map (fun {v} => {body}) {} with | [] => 0 | x :: xs => xs.foldl {name} x)", filtered(v, src, filt))
+            }),
             "sum" => comp(&|v, src, filt, body| format!("(List.foldr (· + ·) 0 (List.map (fun {v} => {body}) {}))", filtered(v, src, filt))),
             other => Err(format!("built-in `{other}` is not compiled")),
         }
@@ -511,6 +529,9 @@ impl<'m> Gen<'m> {
         }
         if calls.contains("pow") {
             out.push_str(POW);
+        }
+        if calls.contains("bucket") {
+            out.push_str("/-- The interpreter's name of an NSFR maturity bucket. -/\ndef bucketName : Nat → String\n  | 0 => \"b0\"\n  | 1 => \"b1\"\n  | _ => \"b2\"\n\n");
         }
 
         // Enums.
@@ -570,6 +591,8 @@ impl<'m> Gen<'m> {
             for (f, t) in fs {
                 writeln!(out, "  {} : {}", kw(f), self.ty(t)?).unwrap();
             }
+            // Bitemporal: when it took effect, and when it was recorded.
+            writeln!(out, "  valid : Int\n  recorded : Int").unwrap();
             writeln!(out, "  deriving DecidableEq, Repr, Inhabited\n").unwrap();
         }
 
@@ -634,6 +657,29 @@ impl<'m> Gen<'m> {
         for ((dn, f), wf) in &self.cyclic {
             let t = self.data[dn].iter().find(|(n, _)| n == f).map(|(_, t)| self.ty(t)).transpose()?.unwrap();
             world.push(format!("  {wf} : {dn} → {t}  -- cyclic record field"));
+        }
+        // Data types iterated as a whole (`s in NettingSet`).
+        let mut tables = BTreeSet::new();
+        for d in &m.decls {
+            if let DeclKind::Fn { body: Some(b), .. } = &d.kind {
+                walk(b, &mut |x| {
+                    if let Expr::Binary(BinOp::In, _, src) = x
+                        && let Expr::Ident(n, _) = &**src
+                        && self.data.contains_key(n)
+                    {
+                        tables.insert(n.clone());
+                    }
+                    if let Expr::Comprehension { source, .. } = x
+                        && let Expr::Ident(n, _) = &**source
+                        && self.data.contains_key(n)
+                    {
+                        tables.insert(n.clone());
+                    }
+                });
+            }
+        }
+        for t in tables {
+            world.push(format!("  {t}_all : List {t}  -- every {t} record"));
         }
         // Built-ins, only if the module uses them.
         let mut used: BTreeSet<String> = BTreeSet::new();
@@ -761,7 +807,10 @@ impl<'m> Gen<'m> {
                     inner.insert(n.clone());
                 }
                 let (_, oe) = c.outputs.iter().find(|(n, _)| n == out_name).ok_or("missing output")?;
-                let val = format!("{lets}{}", self.expr(oe, &inner)?);
+                self.in_output.set(true);
+                let compiled = self.expr(oe, &inner);
+                self.in_output.set(false);
+                let val = format!("{lets}{}", compiled?);
                 if i + 1 < cases.len() {
                     write!(body, "if {} then\n    {val}\n  else ", self.expr(&c.cond, &locals)?).unwrap();
                 } else {
@@ -773,6 +822,8 @@ impl<'m> Gen<'m> {
                 for b in 0..3 {
                     body = body.replace(&format!("\"b{b}\")"), &format!("({b} : Nat))"));
                 }
+                // A single-column row (e.g. ("8.2", "amount")): index 9.
+                body = body.replace("\"amount\")", "(9 : Nat))");
             }
             writeln!(out, "def out_{out_name} (W : World) (m : Mode) ({var} : {src}){binders} : {ret} :=\n  {body}\n").unwrap();
             let (table, sig) = match measure {

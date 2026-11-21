@@ -260,7 +260,7 @@ def out_nsfr (W : World) (m : Mode) (d : Deposit) (operational : Bool) (covered 
   else if ((d.within_30_days || d.called) && d.called) then
     ("12", (0 : Nat))
   else if ((d.within_30_days && (!d.called)) && operational) then
-    ("8", (0 : Nat))
+    ("8.2", (9 : Nat))
   else 
     -- remaining case (exhaustive by the Z3 obligation): ((d.within_30_days && (!d.called)) && (!operational))
     (match d.holder.kind with
@@ -490,6 +490,8 @@ def factor_Arf210_6 : String × Nat → Int
   | ("7", 1) => 50
   | ("7", 2) => 100
   | ("8", 0) => 50
+  | ("8.1", 9) => 50
+  | ("8.2", 9) => 50
   | ("9", 0) => 50
   | ("9", 1) => 50
   | ("9", 2) => 100

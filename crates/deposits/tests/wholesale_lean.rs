@@ -90,6 +90,10 @@ fn generated_model_agrees_with_the_interpreter() {
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (s >> 33) % k
     };
+    let factors = match arf210::lean_targets().unwrap().remove(1).1 {
+        prudence_core::syntax::lean::Measure::Factor(f) => f,
+        _ => unreachable!(),
+    };
     let mut guards = String::new();
     let mut n = 0;
     for i in 0..150 {
@@ -120,7 +124,8 @@ fn generated_model_agrees_with_the_interpreter() {
                 if let Some(item) = &x.lcr_item {
                     lcr += a * pct(arf210::lcr_all(), item, "weight");
                 }
-                asf += a * pct(arf210::nsfr(), &x.nsfr.0, &format!("f{}", &x.nsfr.1[1..]));
+                let idx: u32 = if x.nsfr.1 == "amount" { 9 } else { x.nsfr.1[1..].parse().unwrap() };
+                asf += a * factors.get(&(x.nsfr.0.clone(), idx)).copied().unwrap_or(0);
             }
             // The insured portion, as allocated by the interpreter's LP.
             let (_, allocs) = run_with_certificates(std::slice::from_ref(&c), std::slice::from_ref(&d), rd, mode).unwrap();

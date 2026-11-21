@@ -137,7 +137,7 @@ fn lean_term(book: &Book, a: &DepositAccount, mode: Mode, rd: NaiveDate, known_a
         }
     }
     let notice = match latest {
-        Some((_, r)) => format!("some ⟨d, {}⟩", day(r)),
+        Some((v, r)) => format!("some ⟨d, {}, {}, {}⟩", day(r), day(v), day(v)),
         None => "none".into(),
     };
     let contract = match &a.contract {

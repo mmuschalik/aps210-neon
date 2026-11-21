@@ -45,6 +45,12 @@ def pcmp {α β : Type} [ToOpt α] [ToOpt β] (r : Int → Int → Prop) [Decida
 abbrev GroupId := Nat
 abbrev ProductClass := Nat
 
+/-- The interpreter's name of an NSFR maturity bucket. -/
+def bucketName : Nat → String
+  | 0 => "b0"
+  | 1 => "b1"
+  | _ => "b2"
+
 inductive Class where
   | Retail
   | RetailLessStable
@@ -109,11 +115,15 @@ structure Deposit where
 structure EarlyWithdrawal where
   product_class : ProductClass
   hardship : Bool
+  valid : Int
+  recorded : Int
   deriving DecidableEq, Repr, Inhabited
 
 structure NoticeGiven where
   deposit : Deposit
   repayment : Int
+  valid : Int
+  recorded : Int
   deriving DecidableEq, Repr, Inhabited
 
 structure SmeGroups_row where
@@ -148,7 +158,7 @@ def horizon (W : World) (m : Mode) (d : Deposit) : Horizon :=
   (match d.contract with
     | .UMP => Horizon.Demand
     | .CLM n grace_end => (if (pcmp (· ≥ ·) grace_end W.reporting_date) then Horizon.Demand else (match (W.latest_notice d) with
-    | some ⟨_, r⟩ => (if (pcmp (· ≤ ·) (r - W.reporting_date) (30 : Int)) then Horizon.Called else Horizon.Excluded)
+    | some ⟨_, r, _, _⟩ => (if (pcmp (· ≤ ·) (r - W.reporting_date) (30 : Int)) then Horizon.Called else Horizon.Excluded)
     | _ => (if (pcmp (· ≥ ·) n (31 : Int)) then Horizon.Excluded else Horizon.Demand)))
     | .PAM maturity ew => (let w := (resolve m ew WithdrawalTerms.Permitted WithdrawalTerms.NoLegalRight)
     (if (pcmp (· ≤ ·) (maturity - W.reporting_date) (30 : Int)) then Horizon.Demand else (if ((w == WithdrawalTerms.Permitted) || ((w == WithdrawalTerms.NoLegalRight) && (List.contains W.Tainted d.product_class))) then Horizon.Demand else Horizon.Excluded))))
@@ -157,7 +167,7 @@ def earliest_redemption (W : World) (m : Mode) (d : Deposit) : Int :=
   (match d.contract with
     | .UMP => W.reporting_date
     | .CLM n grace_end => (if (pcmp (· ≥ ·) grace_end W.reporting_date) then W.reporting_date else (match (W.latest_notice d) with
-    | some ⟨_, r⟩ => r
+    | some ⟨_, r, _, _⟩ => r
     | _ => (W.reporting_date + n)))
     | .PAM maturity ew => (let w := (resolve m ew WithdrawalTerms.Permitted WithdrawalTerms.NoLegalRight)
     (if (((w == WithdrawalTerms.Permitted) || ((w == WithdrawalTerms.NoLegalRight) && (List.contains W.Tainted d.product_class))) || (pcmp (· < ·) maturity W.reporting_date)) then W.reporting_date else maturity)))
@@ -571,6 +581,8 @@ def factor_Arf210_6 : String × Nat → Int
   | ("7", 1) => 50
   | ("7", 2) => 100
   | ("8", 0) => 50
+  | ("8.1", 9) => 50
+  | ("8.2", 9) => 50
   | ("9", 0) => 50
   | ("9", 1) => 50
   | ("9", 2) => 100

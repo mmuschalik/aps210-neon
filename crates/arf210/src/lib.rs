@@ -104,6 +104,15 @@ pub fn lean_targets() -> Result<Vec<(String, prudence_core::syntax::lean::Measur
         for (b, col) in ["f0", "f1", "f2"].iter().enumerate() {
             if let Some(q) = constant(it.cell(col)) {
                 factors.insert((it.id.clone(), b as u32), pct(&q)?);
+                // Single-column rows summed into this bucket (e.g. 8.1 and 8.2
+                // into item 8's b0) take its factor: "bucket" 9 is `amount`.
+                if let Some(prudence_core::ir::Cell::Derived(e)) = it.cell(&format!("b{b}")) {
+                    let mut refs = Vec::new();
+                    e.refs(&mut refs);
+                    for r in refs.iter().filter(|r| r.col == "amount") {
+                        factors.insert((r.item.clone(), 9), pct(&q)?);
+                    }
+                }
             }
         }
     }
