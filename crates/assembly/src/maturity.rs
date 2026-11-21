@@ -6,9 +6,8 @@
 //! from earlier daily snapshots and the ARF 210.4 forecasts from the funding
 //! plan. Each cell comes with per-source contribution evidence.
 //!
-//! Not modelled (zero): early repayment requests on wholesale funding (ARF
-//! 210.5 items 8.2-8.3), and ARF 210.5 items 3.2-3.5 (facility drawdowns
-//! over the five days), which need event data the modules do not keep.
+//! ARF 210.5 percentages that need facility limits (items 3.x column 2) are
+//! not computed: the facility records hold undrawn amounts only.
 
 use std::collections::BTreeMap;
 
@@ -530,6 +529,69 @@ pub fn daily_lcr(bank: &Bank, rd: NaiveDate, mode: Mode, extras: &Extras) -> Res
                     a.0.push(checker::FormContribution {
                         source: src,
                         cell: "8.1:amount_pct".into(),
+                        amount: Q::from_integer(100.into()) * &value / avg,
+                    });
+                }
+            }
+        }
+        // Items 3.2-3.5: net drawings under facilities over the five days -
+        // the fall in each facility's undrawn amount (column 1); the undrawn
+        // amount today (column 3).
+        for f in &bank.commitments.facilities {
+            use obligations::FacilityKind;
+            let row = if !(f.committed || f.mortgage_redraw) {
+                "3.2"
+            } else if f.mortgage_redraw {
+                "3.5"
+            } else if f.kind == FacilityKind::LiquidityFacility {
+                "3.3"
+            } else {
+                "3.4"
+            };
+            a.add(&f.id, row, "undrawn", &f.undrawn);
+            if let Some(before) = prior.commitments.facilities.iter().find(|g| g.id == f.id) {
+                a.add(&src, row, "outflow", &(&before.undrawn - &f.undrawn));
+            }
+        }
+        // Items 8.2-8.3: early repayment requests over the five days, number,
+        // value, approved, and value as a percentage of the five-day average
+        // balance of that funding (when all five days are known).
+        let short = |k: funding::SecurityKind| {
+            use funding::SecurityKind::*;
+            matches!(k, ShortTerm | EuroCommercialPaper | UsCommercialPaper)
+        };
+        let balance = |b: &Bank, st: bool| -> Q {
+            b.funding.securities.iter().filter(|x| short(x.kind) == st).map(|x| x.amount.clone()).sum()
+        };
+        for (row, st) in [("8.2", true), ("8.3", false)] {
+            let reqs: Vec<&funding::EarlyRepaymentRequest> = bank
+                .funding
+                .early_repayment_requests
+                .iter()
+                .filter(|r| *pd < r.requested && r.requested <= rd)
+                .filter(|r| bank.funding.securities.iter().any(|x| x.id == r.security && short(x.kind) == st))
+                .collect();
+            if reqs.is_empty() {
+                continue;
+            }
+            let rsrc = format!("early repayment requests {pd}..{rd}");
+            let value: Q = reqs.iter().map(|r| r.amount.clone()).sum();
+            let approved: Q = reqs.iter().filter(|r| r.approved).map(|r| r.amount.clone()).sum();
+            a.0.push(checker::FormContribution { source: rsrc.clone(), cell: format!("{row}:number"), amount: Q::from_integer((reqs.len() as i64).into()) });
+            a.0.push(checker::FormContribution {
+                source: rsrc.clone(),
+                cell: format!("{row}.1:number"),
+                amount: Q::from_integer((reqs.iter().filter(|r| r.approved).count() as i64).into()),
+            });
+            a.add(&rsrc, row, "amount", &value);
+            a.add(&rsrc, &format!("{row}.1"), "amount", &approved);
+            if extras.recent.len() >= 4 {
+                let avg = (std::iter::once(balance(bank, st)).chain(extras.recent.iter().take(4).map(|(_, b)| balance(b, st))).sum::<Q>())
+                    / Q::from_integer(5.into());
+                if avg != Q::default() {
+                    a.0.push(checker::FormContribution {
+                        source: rsrc,
+                        cell: format!("{row}:amount_pct"),
                         amount: Q::from_integer(100.into()) * &value / avg,
                     });
                 }

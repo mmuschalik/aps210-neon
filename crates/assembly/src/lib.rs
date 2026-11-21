@@ -495,6 +495,8 @@ pub fn package_all(
                     "the ADI's records as at an earlier business day; not GL reconciled at this date"
                 } else if c.source.starts_with("collateral events") {
                     "realised collateral flows (bitemporal events); not GL reconciled"
+                } else if c.source.starts_with("early repayment requests") || c.source.starts_with("notice events") {
+                    "requests and notices received over the five days; not GL reconciled"
                 } else if c.source == "funding plan" {
                     "the ADI's funding plan (forecast); not GL reconciled"
                 } else {

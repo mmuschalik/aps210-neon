@@ -70,11 +70,21 @@ pub struct Placement {
     pub operational: Uncertain<bool>,
 }
 
+/// A holder's request to repay a security early (ARF 210.5 item 8).
+#[derive(Clone, Debug)]
+pub struct EarlyRepaymentRequest {
+    pub security: String,
+    pub requested: NaiveDate,
+    pub amount: Q,
+    pub approved: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Book {
     pub securities: Vec<IssuedSecurity>,
     pub capital: Vec<CapitalInstrument>,
     pub placements: Vec<Placement>,
+    pub early_repayment_requests: Vec<EarlyRepaymentRequest>,
 }
 
 fn date(d: NaiveDate) -> Val {

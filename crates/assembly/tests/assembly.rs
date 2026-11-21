@@ -466,10 +466,24 @@ fn daily_history_and_funding_plan() {
             notice_on,
         );
     }
+    b.funding.early_repayment_requests.push(funding::EarlyRepaymentRequest {
+        security: "ncd".into(),
+        requested: rd() - Days::new(1),
+        amount: m(5),
+        approved: true,
+    });
     let mut prior = bank(true);
     prior.loans[0].balance = m(50); // the loan book grew by 10m over the week
+    prior.commitments.facilities[0].undrawn = m(90); // 10m drawn over the week
+    prior.funding = funding_book();
     let extras = assembly::maturity::Extras {
-        recent: (1..=4).map(|k| (rd() - Days::new(k), bank(true))).collect(),
+        recent: (1..=4)
+            .map(|k| {
+                let mut s = bank(true);
+                s.funding = funding_book();
+                (rd() - Days::new(k), s)
+            })
+            .collect(),
         prior: Some((rd() - Days::new(7), prior)),
         plan: [("9.1.1:m12".to_string(), m(55))].into(),
     };
@@ -492,9 +506,14 @@ fn daily_history_and_funding_plan() {
     assert_eq!(p.optional_inputs["ARF 210.3.1"]["8.3:d7"], Q::from_integer(102.into()));
     assert_eq!(daily["2.4:balance"], Q::from_integer(25.into()));
     assert!(daily.contains_key("6.4:d15"));
+    assert_eq!(daily["3.4:outflow"], Q::from_integer(10.into())); // committed credit facility drawn
+    assert_eq!(daily["3.4:undrawn"], Q::from_integer(80.into()));
+    assert_eq!(daily["8.2:number"], Q::from_integer(1.into()));
+    assert_eq!(daily["8.2.1:amount"], Q::from_integer(5.into()));
     assert!(acct.is_some(), "the generated book has a notice account");
     assert_eq!(daily["8.1:number"], Q::from_integer(1.into()));
     assert!(daily.contains_key("8.1:amount_pct"));
+    assert_eq!(daily["8.2:amount_pct"], Q::from_integer(20.into())); // 5 of 25
     let rep = checker::check_complete(&p);
     assert!(rep.passed(), "{:?}", rep.failures());
 }
@@ -516,6 +535,7 @@ fn funding_book() -> funding::Book {
             maturity: None,
             operational: Uncertain::Known(false),
         }],
+        early_repayment_requests: vec![],
     }
 }
 
