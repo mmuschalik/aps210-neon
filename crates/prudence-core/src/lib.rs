@@ -3,6 +3,7 @@
 //! rational arithmetic, a `.prd` spec parser with static validation, and an
 //! evaluator.
 
+pub mod cite;
 pub mod date;
 pub mod eval;
 pub mod interp;
