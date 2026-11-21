@@ -235,7 +235,11 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
     for a in &c.assumptions {
         assumptions.push(("retail", a.subject.clone(), a.attribute.to_string(), a.assumed.clone(), a.reason.clone()));
     }
-    let (ws, allocs) = deposits::wholesale::run_with_certificates(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, modes("wholesale"))?;
+    let wr = deposits::wholesale::run_full(&bank.wholesale_customers, &bank.wholesale_deposits, reporting_date, modes("wholesale"))?;
+    let (ws, allocs) = (wr.slices, wr.allocations);
+    for ((s, at), (v, why)) in wr.assumptions {
+        assumptions.push(("wholesale", s, at, v, why));
+    }
     certify("wholesale", allocs);
     for d in &bank.wholesale_deposits {
         records.push((d.id.clone(), "wholesale", d.balance.clone(), true));

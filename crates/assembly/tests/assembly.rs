@@ -602,6 +602,9 @@ fn the_cost_of_missing_data_by_module() {
     assert!(best.surplus() >= reported.surplus());
     let retail = drags.iter().find(|d| d.module == "retail").unwrap();
     assert!(retail.unknowns > 0);
+    // Wholesale unknowns are logged too (reported by the parallel session).
+    let wholesale = drags.iter().find(|d| d.module == "wholesale").unwrap();
+    assert!(wholesale.unknowns > 0, "{wholesale:?}");
     for d in &drags {
         assert!(d.liquid_assets_freed >= Q::default(), "{d:?}");
         assert_eq!(d.annual_cost, &d.liquid_assets_freed * &carry);

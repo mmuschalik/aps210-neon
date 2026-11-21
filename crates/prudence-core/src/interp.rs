@@ -159,6 +159,8 @@ pub struct Interp<'a> {
     alloc_cache: RefCell<HashMap<String, Val>>,
     assumptions: RefCell<BTreeMap<(String, String), (String, String)>>,
     trace: RefCell<Option<BTreeSet<String>>>,
+    /// Slice amounts by subject, built once the partition has run.
+    slice_index: RefCell<Option<HashMap<String, Vec<Q>>>>,
     allocations: RefCell<Vec<Allocation>>,
     slices: RefCell<Option<Vec<Slice>>>,
 }
@@ -221,6 +223,7 @@ impl<'a> Interp<'a> {
             alloc_cache: RefCell::default(),
             assumptions: RefCell::default(),
             trace: RefCell::default(),
+            slice_index: RefCell::default(),
             allocations: RefCell::default(),
             slices: RefCell::default(),
         };
@@ -809,14 +812,18 @@ impl<'a> Interp<'a> {
             "slices" => {
                 let (v, _) = self.args_named(args, scope)?;
                 let id = self.id_of(v.first().ok_or("slices(x)")?);
-                let all = self.slices.borrow();
-                let all = all.as_ref().ok_or("slices(..) is only available after the partition has run")?;
-                Ok(Val::List(
-                    all.iter()
-                        .filter(|s| s.subject == id)
-                        .map(|s| Val::Struct(vec![("amount".into(), Val::Num(s.amount.clone()))]))
-                        .collect(),
-                ))
+                if self.slice_index.borrow().is_none() {
+                    let all = self.slices.borrow();
+                    let all = all.as_ref().ok_or("slices(..) is only available after the partition has run")?;
+                    let mut ix: HashMap<String, Vec<Q>> = HashMap::new();
+                    for s in all {
+                        ix.entry(s.subject.clone()).or_default().push(s.amount.clone());
+                    }
+                    *self.slice_index.borrow_mut() = Some(ix);
+                }
+                let ix = self.slice_index.borrow();
+                let amounts = ix.as_ref().and_then(|m| m.get(&id)).cloned().unwrap_or_default();
+                Ok(Val::List(amounts.into_iter().map(|a| Val::Struct(vec![("amount".into(), Val::Num(a))])).collect()))
             }
             other => Err(at(format!("unknown function `{other}`"))),
         }
@@ -903,16 +910,20 @@ impl<'a> Interp<'a> {
         };
         let sense = self.opts.sense.unwrap_or(*sense);
 
-        // Groups: distinct values of `per_field` over the source rows.
-        let mut groups: Vec<Val> = Vec::new();
+        // Groups: distinct values of `per_field` over the source rows, in
+        // first-seen order, with their rows (one pass).
+        let mut groups: Vec<(Val, Vec<Val>)> = Vec::new();
+        let mut index: HashMap<String, usize> = HashMap::new();
         for r in self.rows(&src_ty) {
             let g = self.member(&r, &per_field)?;
-            if !groups.contains(&g) {
-                groups.push(g);
-            }
+            let i = *index.entry(key(&g)).or_insert_with(|| {
+                groups.push((g.clone(), Vec::new()));
+                groups.len() - 1
+            });
+            groups[i].1.push(r);
         }
         let mut result: BTreeMap<String, Val> = BTreeMap::new();
-        for g in groups {
+        for (g, group_rows) in groups {
             let mut scope: Scope = vec![(per.clone(), g.clone())];
             if let Some(f) = filter
                 && !truth(self.eval(f, &mut scope)?)?
@@ -921,12 +932,7 @@ impl<'a> Interp<'a> {
             }
             // Decision variables: this group's rows, in subject-id order (the
             // order also breaks ties between optimal solutions).
-            let mut rows: Vec<Val> = Vec::new();
-            for r in self.rows(&src_ty) {
-                if self.member(&r, &per_field)? == g {
-                    rows.push(r);
-                }
-            }
+            let mut rows: Vec<Val> = group_rows;
             rows.sort_by_key(|r| self.id_of(r));
             let vars: Vec<String> = rows.iter().map(key).collect();
             let at = |m: String| format!("{name} for {}: {m}", self.id_of(&g));

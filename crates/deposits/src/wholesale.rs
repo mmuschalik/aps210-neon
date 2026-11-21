@@ -73,6 +73,20 @@ pub fn run_with_certificates(
     reporting_date: NaiveDate,
     mode: Mode,
 ) -> Result<(Vec<WSlice>, Vec<prudence_core::interp::Allocation>), String> {
+    let r = run_full(customers, deposits, reporting_date, mode)?;
+    Ok((r.slices, r.allocations))
+}
+
+/// Everything a run produces.
+pub struct WRun {
+    pub slices: Vec<WSlice>,
+    pub allocations: Vec<prudence_core::interp::Allocation>,
+    /// (subject, attribute) -> (value assumed, reason it was unknown).
+    pub assumptions: BTreeMap<(String, String), (String, String)>,
+}
+
+/// As `run`, with the allocations and the assumptions made for unknowns.
+pub fn run_full(customers: &[Customer], deposits: &[Deposit], reporting_date: NaiveDate, mode: Mode) -> Result<WRun, String> {
     let mut w = World::default();
     let mut cref = BTreeMap::new();
     for c in customers {
@@ -138,7 +152,7 @@ pub fn run_with_certificates(
         slices.push(WSlice { covered: s.splits.iter().any(|(name, value)| name == "covered" && *value), account: s.subject, amount: s.amount, lcr_item, nsfr });
     }
     slices.sort();
-    Ok((slices, out.allocations))
+    Ok(WRun { slices, allocations: out.allocations, assumptions: out.assumptions })
 }
 
 /// The Lean model generated from the spec, measured on ARF 210.1A and
