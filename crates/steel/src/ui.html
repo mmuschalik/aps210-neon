@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APS 210 — Form &amp; Drilldown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #F6F6F4; --surface: #FFFFFF; --ink: #16181D; --ink-2: #3F4552; --muted: #5B6270;
+  --line: #E3E4E8; --line-2: #F0F1F3;
+  --accent: #2453C7; --accent-ink: #173A94; --accent-bg: #E8EEFC; --accent-bg-2: #F2F5FD;
+  --ok-ink: #1C6B43; --ok-bg: #E6F4EC;
+  --warn-ink: #7A4F00; --warn-bg: #FFF8E8; --warn-line: #F0D79A; --warn-dot: #C27A00;
+  --bad-ink: #9B1C1C; --bad-bg: #FDECEC;
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #111317; --surface: #191C22; --ink: #E8E9EC; --ink-2: #C3C6CE; --muted: #9AA0AC;
+  --line: #2C3038; --line-2: #23262D;
+  --accent: #7FA2F5; --accent-ink: #B5C8FA; --accent-bg: #1E2A47; --accent-bg-2: #1A2234;
+  --ok-ink: #7FD1A3; --ok-bg: #16301F;
+  --warn-ink: #F2C46B; --warn-bg: #2B2414; --warn-line: #5C4A1E; --warn-dot: #E0A23A;
+  --bad-ink: #F59B9B; --bad-bg: #3A1C1C;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13.5px/1.45 var(--sans); }
+button { font: inherit; color: inherit; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 10px 22px; min-height: 56px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+.brand { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.brand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); display: inline-block; }
+nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+nav.tabs button { padding: 7px 12px; border-radius: 6px; border: 0; background: transparent; color: var(--ink-2); cursor: pointer; font-weight: 500; }
+nav.tabs button:hover { background: var(--line-2); }
+nav.tabs button[aria-current="page"] { background: var(--accent-bg); color: var(--accent-ink); font-weight: 600; }
+.grow { flex: 1; }
+.search input { width: min(260px, 50vw); padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--ink); background: var(--surface); }
+.pill { font-size: 12px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink-2); background: var(--surface); }
+.theme { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--ink-2); }
+
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.kpi .eyebrow { font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.kpi .big { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi .sub { font-size: 12px; color: var(--muted); }
+.ok-txt { color: var(--ok-ink); }
+.warn-txt { color: var(--warn-ink); }
+.bad-txt { color: var(--bad-ink); }
+
+.workspace { display: flex; align-items: stretch; min-height: calc(100vh - 165px); }
+.form-pane { flex: 1 1 60%; min-width: 0; padding: 16px 22px 48px; overflow-x: auto; }
+.drill-pane { width: 460px; max-width: 44vw; flex: none; background: var(--surface); border-left: 1px solid var(--line); padding: 18px 20px 48px; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; }
+@media (max-width: 960px) { .workspace { flex-direction: column; } .drill-pane { width: 100%; max-width: 100%; position: static; height: auto; border-left: 0; border-top: 1px solid var(--line); } }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.toolbar h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.toolbar label { font-size: 12.5px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+table.form { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+table.form th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--bg); }
+table.form th.num { text-align: right; }
+table.form td { padding: 8px 12px; border-top: 1px solid var(--line-2); vertical-align: middle; }
+table.form tbody tr { cursor: pointer; transition: background 0.1s; }
+table.form tbody tr:hover { background: var(--accent-bg-2); }
+table.form tbody tr.selected { background: var(--accent-bg); }
+table.form tbody tr.total-row { font-weight: 700; background: var(--line-2); }
+table.form tbody tr.total-row.selected { background: var(--accent-bg); }
+table.form tbody tr.section-row { font-weight: 600; }
+
+.indent-0 { padding-left: 12px !important; }
+.indent-1 { padding-left: 26px !important; }
+.indent-2 { padding-left: 42px !important; }
+.indent-3 { padding-left: 56px !important; }
+
+.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.badge.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.badge.accent { background: var(--accent-bg); color: var(--accent-ink); }
+.badge.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.badge.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.badge.plain { background: var(--line-2); color: var(--ink-2); font-weight: 500; }
+
+.drill-head { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.drill-id { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.drill-title { font-size: 16px; font-weight: 700; line-height: 1.3; }
+.drill-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.stat-box { background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 12px; }
+.stat-box .k { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
+.stat-box .v { font-family: var(--mono); font-size: 15px; font-weight: 700; margin-top: 2px; }
+
+.formula-box { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; word-break: break-word; color: var(--ink-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip:hover { border-color: var(--accent); background: var(--accent-bg-2); color: var(--accent-ink); }
+
+.contrib-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.contrib-table th { text-align: left; font-size: 11px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.contrib-table th.num { text-align: right; }
+.contrib-table td { padding: 6px 8px; border-top: 1px solid var(--line-2); }
+.contrib-table tbody tr { cursor: pointer; }
+.contrib-table tbody tr:hover { background: var(--accent-bg-2); }
+.bar-mini { height: 5px; background: var(--line-2); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.bar-mini > div { height: 5px; background: var(--accent); border-radius: 3px; }
+
+.page { max-width: 1180px; margin: 0 auto; padding: 20px 22px 56px; display: flex; flex-direction: column; gap: 24px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.card h2 { margin: 0; font-size: 15.5px; font-weight: 700; }
+.empty { color: var(--muted); font-size: 13px; padding: 16px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="brand-dot"></span>APS 210 Form &amp; Drilldown</div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="lcr" aria-current="page">ARF 210.1A (LCR)</button>
+    <button data-tab="nsfr">ARF 210.6 (NSFR)</button>
+    <button data-tab="stress">Stress &amp; Level 2</button>
+    <button data-tab="contract">Contract Impact</button>
+  </nav>
+  <div class="grow"></div>
+  <div class="search"><input id="q" type="search" placeholder="Filter item, label, or record ID…"></div>
+  <span class="pill mono" id="meta-pill"></span>
+  <button class="theme" id="theme-btn">Dark</button>
+</header>
+
+<section class="kpi-strip" id="kpis"></section>
+<div id="root"></div>
+
+<script>
+const DATA = __DATA__;
+
+let state = {
+  tab: 'lcr',
+  query: '',
+  hideZero: true,
+  selectedLcr: '30',
+  selectedNsfr: '56',
+  selectedContract: null,
+};
+
+const fmtM = (n) => (n === null || n === undefined) ? '—' : n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPct = (n) => (n === null || n === undefined) ? '—' : n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+const depthOf = (id) => Math.min(3, id.split('.').length - 1);
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+}
+
+function renderHeader() {
+  document.getElementById('meta-pill').textContent =
+    `${DATA.meta.adi} · ${DATA.meta.reporting_date} · ${DATA.meta.total_records.toLocaleString()} records`;
+  document.querySelectorAll('#tabs button').forEach(b => {
+    b.setAttribute('aria-current', b.dataset.tab === state.tab ? 'page' : 'false');
+  });
+  const m = DATA.meta;
+  const comb = DATA.stress.find(s => s.name.includes('Combined (30d')) || DATA.stress[DATA.stress.length - 1];
+  const kpiEl = document.getElementById('kpis');
+  kpiEl.innerHTML = `
+    <div class="kpi">
+      <div class="eyebrow">ARF 210.1A · LCR (Level 1)</div>
+      <div class="big ${m.lcr >= 100 ? 'ok-txt' : 'bad-txt'}">${fmtPct(m.lcr)}</div>
+      <div class="sub">HQLA $${fmtM(m.hqla)}M · NCO $${fmtM(m.nco)}M</div>
+    </div>
+    <div class="kpi">
+      <div class="eyebrow">ARF 210.6 · NSFR (Level 1)</div>
+      <div class="big ${m.nsfr >= 100 ? 'ok-txt' : 'bad-txt'}">${fmtPct(m.nsfr)}</div>
+      <div class="sub">ASF $${fmtM(m.asf)}M · RSF $${fmtM(m.rsf)}M</div>
+    </div>
+    <div class="kpi">
+      <div class="eyebrow">Combined 30d Acute Stress</div>
+      <div class="big ${comb && comb.lcr >= 100 ? 'ok-txt' : 'bad-txt'}">${comb ? fmtPct(comb.lcr) : '—'}</div>
+      <div class="sub">${comb ? `LCR Surplus $${fmtM(comb.lcr_surplus)}M · NSFR ${fmtPct(comb.nsfr)}` : ''}</div>
+    </div>
+    <div class="kpi">
+      <div class="eyebrow">Level 2 Trapped Offshore HQLA</div>
+      <div class="big warn-txt">$${fmtM(m.trapped_hqla)}M</div>
+      <div class="sub">${DATA.level2.length} subsidiaries · ${DATA.sig_ccy.filter(c => c.significant).map(c => c.ccy).join(', ')} significant</div>
+    </div>
+  `;
+}
+
+function renderLcr() {
+  const q = state.query.trim().toLowerCase();
+  const rows = DATA.lcr_items.filter(it => {
+    if (state.hideZero && it.is_zero) return false;
+    if (!q) return true;
+    return it.id.toLowerCase().includes(q) || it.label.toLowerCase().includes(q)
+      || (it.contribs || []).some(c => c.id.toLowerCase().includes(q));
+  });
+  const sel = DATA.lcr_items.find(i => i.id === state.selectedLcr) || rows[0] || DATA.lcr_items[0];
+  if (sel) state.selectedLcr = sel.id;
+
+  const isMajor = (id) => ['1','2','3','4','7','8','9','10','11','13','14','15','16','18','19','20','21','23','24','25','27','28','29','30'].includes(id);
+
+  return `
+  <div class="workspace">
+    <div class="form-pane">
+      <div class="toolbar">
+        <h2>ARF 210.1A — Liquidity Coverage Ratio (All Currencies, AUD $M)</h2>
+        <label><input type="checkbox" id="hide-zero" ${state.hideZero ? 'checked' : ''}> Hide zero rows</label>
+      </div>
+      <table class="form">
+        <thead>
+          <tr>
+            <th style="width:92px">Item</th>
+            <th>Description</th>
+            <th style="width:74px">Kind</th>
+            <th class="num" style="width:118px">Amount ($M)</th>
+            <th class="num" style="width:76px">Weight</th>
+            <th class="num" style="width:128px">Weighted / Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(it => {
+            const cls = [
+              it.id === state.selectedLcr ? 'selected' : '',
+              ['4','7','18','23','25','27','28','29','30'].includes(it.id) ? 'total-row' : (isMajor(it.id) ? 'section-row' : '')
+            ].join(' ');
+            const valStr = it.id === '30' ? fmtPct(it.weighted) : fmtM(it.weighted);
+            const wtStr = it.weight !== null ? (it.weight * 100).toFixed(0) + '%' : '—';
+            return `<tr class="${cls}" data-lcr="${esc(it.id)}">
+              <td class="mono">${esc(it.id)}</td>
+              <td class="indent-${depthOf(it.id)}">${esc(it.label)}</td>
+              <td><span class="badge ${it.is_input ? 'accent' : 'plain'}">${it.is_input ? 'INPUT' : 'CALC'}</span></td>
+              <td class="num">${fmtM(it.amount)}</td>
+              <td class="num">${wtStr}</td>
+              <td class="num">${valStr}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <aside class="drill-pane">${sel ? renderLcrDrill(sel) : '<div class="empty">Select any row to inspect formula &amp; contributing contracts.</div>'}</aside>
+  </div>`;
+}
+
+function renderLcrDrill(it) {
+  const contribs = it.contribs || [];
+  const maxAmt = contribs.reduce((m, c) => Math.max(m, Math.abs(c.amount)), 0) || 1;
+  const totalAmt = it.amount || it.weighted || 0;
+  return `
+    <div class="drill-head">
+      <div class="drill-id">
+        <span class="badge accent mono">ARF 210.1A · Item ${esc(it.id)}</span>
+        <span class="badge ${it.is_input ? 'ok' : 'plain'}">${it.is_input ? 'Input Cell' : 'Derived Formula'}</span>
+        ${it.cite ? `<span class="badge warn">${esc(it.cite)}</span>` : ''}
+      </div>
+      <div class="drill-title">${esc(it.label)}</div>
+    </div>
+    <div class="drill-grid">
+      <div class="stat-box"><div class="k">Amount ($M)</div><div class="v">${fmtM(it.amount)}</div></div>
+      <div class="stat-box"><div class="k">${it.id === '30' ? 'LCR Ratio' : 'Weighted / Value ($M)'}</div><div class="v">${it.id === '30' ? fmtPct(it.weighted) : fmtM(it.weighted)}</div></div>
+    </div>
+    ${it.formula ? `
+      <div>
+        <div class="eyebrow" style="margin-bottom:6px">Form Formula</div>
+        <div class="formula-box">${esc(it.formula)}</div>
+      </div>` : ''}
+    ${it.deps && it.deps.length ? `
+      <div>
+        <div class="eyebrow" style="margin-bottom:6px">Drill Down Into Referenced Items</div>
+        <div class="chips">
+          ${it.deps.map(d => {
+            const child = DATA.lcr_items.find(x => x.id === d);
+            const v = child ? (child.weighted ?? child.amount) : null;
+            return `<button class="chip" data-jump-lcr="${esc(d)}"><span class="mono">${esc(d)}</span><span class="num">${fmtM(v)}</span></button>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
+    <div>
+      <div class="eyebrow" style="margin-bottom:6px">Contributing Records (${it.contrib_total.toLocaleString()} total${it.contrib_total > contribs.length ? `, showing top ${contribs.length}` : ''})</div>
+      ${contribs.length ? `
+        <table class="contrib-table">
+          <thead><tr><th>Record ID</th><th>Mod</th><th>CCY</th><th class="num">AUD ($M)</th></tr></thead>
+          <tbody>
+            ${contribs.map(c => {
+              const pctW = Math.min(100, Math.round(Math.abs(c.amount) / maxAmt * 100));
+              return `<tr data-contract="${esc(c.id)}">
+                <td><div class="mono">${esc(c.id)}</div><div class="bar-mini"><div style="width:${pctW}%"></div></div></td>
+                <td><span class="badge plain">${esc(c.module)}</span></td>
+                <td class="mono">${esc(c.ccy)}</td>
+                <td class="num">${fmtM(c.amount)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>` : `<div class="empty">${it.is_input ? 'No non-zero records in this item.' : 'Derived row — click a referenced item chip above to drill into underlying contracts.'}</div>`}
+    </div>
+  `;
+}
+
+function renderNsfr() {
+  const q = state.query.trim().toLowerCase();
+  const rows = DATA.nsfr_items.filter(it => {
+    if (state.hideZero && it.is_zero) return false;
+    if (!q) return true;
+    return it.id.toLowerCase().includes(q) || it.label.toLowerCase().includes(q)
+      || (it.contribs || []).some(c => c.id.toLowerCase().includes(q));
+  });
+  const sel = DATA.nsfr_items.find(i => i.id === state.selectedNsfr) || rows[0] || DATA.nsfr_items[0];
+  if (sel) state.selectedNsfr = sel.id;
+
+  return `
+  <div class="workspace">
+    <div class="form-pane">
+      <div class="toolbar">
+        <h2>ARF 210.6 — Net Stable Funding Ratio (AUD $M)</h2>
+        <label><input type="checkbox" id="hide-zero" ${state.hideZero ? 'checked' : ''}> Hide zero rows</label>
+      </div>
+      <table class="form">
+        <thead>
+          <tr>
+            <th style="width:86px">Item</th>
+            <th>Description</th>
+            <th class="num" style="width:96px">&lt;6m / Amt</th>
+            <th class="num" style="width:96px">6m–1y</th>
+            <th class="num" style="width:96px">&gt;=1y</th>
+            <th class="num" style="width:116px">Weighted ($M)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(it => {
+            const cls = [
+              it.id === state.selectedNsfr ? 'selected' : '',
+              ['19','47','55','56'].includes(it.id) ? 'total-row' : ''
+            ].join(' ');
+            const calcStr = it.id === '56' ? fmtPct(it.calc) : fmtM(it.calc);
+            return `<tr class="${cls}" data-nsfr="${esc(it.id)}">
+              <td class="mono">${esc(it.id)}</td>
+              <td class="indent-${depthOf(it.id)}">${esc(it.label)}</td>
+              <td class="num">${fmtM(it.b0)}</td>
+              <td class="num">${fmtM(it.b1)}</td>
+              <td class="num">${fmtM(it.b2)}</td>
+              <td class="num">${calcStr}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <aside class="drill-pane">${sel ? renderNsfrDrill(sel) : '<div class="empty">Select any NSFR row to inspect buckets &amp; contributing records.</div>'}</aside>
+  </div>`;
+}
+
+function renderNsfrDrill(it) {
+  const contribs = it.contribs || [];
+  const maxAmt = contribs.reduce((m, c) => Math.max(m, Math.abs(c.amount)), 0) || 1;
+  return `
+    <div class="drill-head">
+      <div class="drill-id">
+        <span class="badge accent mono">ARF 210.6 · Item ${esc(it.id)}</span>
+        <span class="badge ${it.is_input ? 'ok' : 'plain'}">${it.is_input ? 'Input Row' : 'Derived Formula'}</span>
+        ${it.cite ? `<span class="badge warn">${esc(it.cite)}</span>` : ''}
+      </div>
+      <div class="drill-title">${esc(it.label)}</div>
+    </div>
+    <div class="drill-grid">
+      <div class="stat-box"><div class="k">&lt; 6m / Amount</div><div class="v">${fmtM(it.b0)}</div></div>
+      <div class="stat-box"><div class="k">6m – 1y</div><div class="v">${fmtM(it.b1)}</div></div>
+      <div class="stat-box"><div class="k">&gt;= 1y</div><div class="v">${fmtM(it.b2)}</div></div>
+      <div class="stat-box"><div class="k">${it.id === '56' ? 'NSFR Ratio' : 'ASF / RSF Calc ($M)'}</div><div class="v">${it.id === '56' ? fmtPct(it.calc) : fmtM(it.calc)}</div></div>
+    </div>
+    ${it.formula ? `
+      <div>
+        <div class="eyebrow" style="margin-bottom:6px">Form Formula</div>
+        <div class="formula-box">${esc(it.formula)}</div>
+      </div>` : ''}
+    ${it.deps && it.deps.length ? `
+      <div>
+        <div class="eyebrow" style="margin-bottom:6px">Referenced Items</div>
+        <div class="chips">
+          ${it.deps.map(d => {
+            const child = DATA.nsfr_items.find(x => x.id === d);
+            return `<button class="chip" data-jump-nsfr="${esc(d)}"><span class="mono">${esc(d)}</span><span class="num">${child ? fmtM(child.calc ?? child.b0) : '—'}</span></button>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
+    <div>
+      <div class="eyebrow" style="margin-bottom:6px">Contributing Records (${it.contrib_total.toLocaleString()} total${it.contrib_total > contribs.length ? `, showing top ${contribs.length}` : ''})</div>
+      ${contribs.length ? `
+        <table class="contrib-table">
+          <thead><tr><th>Record ID</th><th>Cell</th><th class="num">AUD ($M)</th></tr></thead>
+          <tbody>
+            ${contribs.map(c => {
+              const pctW = Math.min(100, Math.round(Math.abs(c.amount) / maxAmt * 100));
+              return `<tr data-contract="${esc(c.id)}">
+                <td><div class="mono">${esc(c.id)}</div><div class="bar-mini"><div style="width:${pctW}%"></div></div></td>
+                <td class="mono">${esc(c.cell)}</td>
+                <td class="num">${fmtM(c.amount)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>` : `<div class="empty">${it.is_input ? 'No non-zero records in this item.' : 'Derived row — click a referenced item chip above.'}</div>`}
+    </div>
+  `;
+}
+
+function renderStress() {
+  return `
+  <div class="page">
+    <div class="card">
+      <h2>APS 210 paras 24–29 Stress Testing Suite (LCR &amp; NSFR)</h2>
+      <table class="form">
+        <thead>
+          <tr><th>Scenario</th><th>Type</th><th class="num">Horizon</th><th class="num">LCR</th><th class="num">LCR Surplus ($M)</th><th class="num">NSFR</th><th class="num">NSFR Surplus ($M)</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          ${DATA.stress.map(s => {
+            const ok = s.lcr >= 100 && s.nsfr >= 100;
+            return `<tr>
+              <td style="font-weight:600">${esc(s.name)}</td>
+              <td><span class="badge plain">${esc(s.kind)}</span></td>
+              <td class="num">${s.horizon}d</td>
+              <td class="num ${s.lcr >= 100 ? 'ok-txt' : 'bad-txt'}">${fmtPct(s.lcr)}</td>
+              <td class="num">${fmtM(s.lcr_surplus)}</td>
+              <td class="num ${s.nsfr >= 100 ? 'ok-txt' : 'bad-txt'}">${fmtPct(s.nsfr)}</td>
+              <td class="num">${fmtM(s.nsfr_surplus)}</td>
+              <td><span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'PASS' : 'BREACH'}</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Level 2 Offshore Subsidiaries — APS 210 §29 Trapped-Surplus Waterfall (AUD $M)</h2>
+      <table class="form">
+        <thead>
+          <tr><th>Subsidiary</th><th>Host Regulator</th><th class="num">Total Surplus</th><th class="num">Trapped Excluded</th><th class="num">Excl. HQLA1</th><th class="num">Excl. HQLA2A</th><th class="num">Consolidated HQLA1</th></tr>
+        </thead>
+        <tbody>
+          ${DATA.level2.map(l => `<tr>
+            <td style="font-weight:600">${esc(l.entity)}</td>
+            <td><span class="badge plain">${esc(l.jurisdiction)}</span></td>
+            <td class="num">${fmtM(l.total_surplus)}</td>
+            <td class="num warn-txt">${fmtM(l.trapped_total)}</td>
+            <td class="num">${fmtM(l.excluded_hqla1)}</td>
+            <td class="num">${fmtM(l.excluded_hqla2a)}</td>
+            <td class="num">${fmtM(l.consolidated_hqla1)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Significant Currencies — ARF 210.1A Item 35 (&gt;= 5% of Total Liabilities)</h2>
+      <table class="form">
+        <thead>
+          <tr><th>Currency</th><th class="num">Liability Share</th><th>Significant</th><th class="num">Outflows ($M)</th><th class="num">Inflows ($M)</th><th class="num">NCO ($M)</th></tr>
+        </thead>
+        <tbody>
+          ${DATA.sig_ccy.map(c => `<tr>
+            <td class="mono" style="font-weight:700">${esc(c.ccy)}</td>
+            <td class="num">${fmtPct(c.share_pct)}</td>
+            <td><span class="badge ${c.significant ? 'accent' : 'plain'}">${c.significant ? 'YES (>=5%)' : 'no'}</span></td>
+            <td class="num">${fmtM(c.outflows)}</td>
+            <td class="num">${fmtM(c.inflows)}</td>
+            <td class="num">${fmtM(c.nco)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function renderContract() {
+  const q = state.query.trim().toLowerCase();
+  const id = state.selectedContract;
+  const allIds = Object.keys(DATA.contracts);
+  const matches = q ? allIds.filter(k => k.toLowerCase().includes(q)).slice(0, 60) : allIds.slice(0, 60);
+  const rec = id ? DATA.contracts[id] : (matches[0] ? DATA.contracts[matches[0]] : null);
+  const activeId = id && DATA.contracts[id] ? id : (matches[0] || null);
+  return `
+  <div class="workspace">
+    <div class="form-pane">
+      <div class="toolbar"><h2>Cross-Form Contract Impact (${allIds.length.toLocaleString()} indexed contracts)</h2></div>
+      <table class="form">
+        <thead><tr><th>Record ID</th><th>Book</th><th class="num">ARF 210.1A Hits</th><th class="num">ARF 210.6 Hits</th></tr></thead>
+        <tbody>
+          ${matches.map(k => {
+            const c = DATA.contracts[k];
+            return `<tr class="${k === activeId ? 'selected' : ''}" data-contract-row="${esc(k)}">
+              <td class="mono">${esc(k)}</td>
+              <td><span class="badge plain">${esc(c.module)}</span></td>
+              <td class="num">${c.lcr.length}</td>
+              <td class="num">${c.nsfr.length}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <aside class="drill-pane">
+      ${rec ? `
+        <div class="drill-head">
+          <div class="drill-id"><span class="badge accent mono">${esc(activeId)}</span><span class="badge plain">${esc(rec.module)}</span></div>
+          <div class="drill-title">Cross-Form Impact Trace</div>
+        </div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:6px">ARF 210.1A (LCR) Contributions</div>
+          ${rec.lcr.length ? `<table class="contrib-table"><thead><tr><th>Item</th><th>CCY</th><th class="num">AUD ($M)</th></tr></thead><tbody>
+            ${rec.lcr.map(x => `<tr data-jump-lcr="${esc(x.item)}"><td class="mono">${esc(x.item)}</td><td class="mono">${esc(x.ccy)}</td><td class="num">${fmtM(x.amount)}</td></tr>`).join('')}
+          </tbody></table>` : '<div class="empty">No LCR contribution (e.g. >30d maturity).</div>'}
+        </div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:6px">ARF 210.6 (NSFR) Contributions</div>
+          ${rec.nsfr.length ? `<table class="contrib-table"><thead><tr><th>Cell</th><th class="num">AUD ($M)</th></tr></thead><tbody>
+            ${rec.nsfr.map(x => `<tr data-jump-nsfr="${esc(x.cell.split(':')[0])}"><td class="mono">${esc(x.cell)}</td><td class="num">${fmtM(x.amount)}</td></tr>`).join('')}
+          </tbody></table>` : '<div class="empty">No NSFR contribution.</div>'}
+        </div>
+      ` : '<div class="empty">Click any contract row from ARF 210.1A or ARF 210.6 to trace its cross-form footprint.</div>'}
+    </aside>
+  </div>`;
+}
+
+function render() {
+  renderHeader();
+  const root = document.getElementById('root');
+  if (state.tab === 'lcr') root.innerHTML = renderLcr();
+  else if (state.tab === 'nsfr') root.innerHTML = renderNsfr();
+  else if (state.tab === 'stress') root.innerHTML = renderStress();
+  else root.innerHTML = renderContract();
+
+  const hz = document.getElementById('hide-zero');
+  if (hz) hz.onchange = (e) => { state.hideZero = e.target.checked; render(); };
+
+  root.querySelectorAll('[data-lcr]').forEach(el => el.onclick = () => { state.selectedLcr = el.dataset.lcr; render(); });
+  root.querySelectorAll('[data-nsfr]').forEach(el => el.onclick = () => { state.selectedNsfr = el.dataset.nsfr; render(); });
+  root.querySelectorAll('[data-jump-lcr]').forEach(el => el.onclick = () => { state.tab = 'lcr'; state.selectedLcr = el.dataset.jumpLcr; render(); });
+  root.querySelectorAll('[data-jump-nsfr]').forEach(el => el.onclick = () => { state.tab = 'nsfr'; state.selectedNsfr = el.dataset.jumpNsfr; render(); });
+  root.querySelectorAll('[data-contract]').forEach(el => el.onclick = () => { state.tab = 'contract'; state.selectedContract = el.dataset.contract; render(); });
+  root.querySelectorAll('[data-contract-row]').forEach(el => el.onclick = () => { state.selectedContract = el.dataset.contractRow; render(); });
+}
+
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; render(); });
+document.getElementById('q').oninput = (e) => { state.query = e.target.value; render(); };
+document.getElementById('theme-btn').onclick = () => {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  document.getElementById('theme-btn').textContent = next === 'dark' ? 'Light' : 'Dark';
+};
+
+render();
+</script>
+</body>
+</html>

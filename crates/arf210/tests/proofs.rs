@@ -1,6 +1,5 @@
 //! Form theorems are proven by Z3 over all inputs.
 
-use prudence_core::syntax::parse_form;
 use prudence_core::syntax::prove::{prove_form, theorem_script, z3};
 
 #[test]
@@ -37,17 +36,5 @@ fn cap_guarantees_need_no_hypotheses() {
     for id in ["hqla2b-at-most-15pct", "hqla2-at-most-40pct"] {
         let t = &f.theorems.iter().find(|t| t.id == id).unwrap().prop;
         assert!(!matches!(t, prudence_core::ir::Prop::Implies(..)), "{id} should be unconditional");
-    }
-}
-
-#[test]
-fn formatter_is_idempotent_on_the_spec_files() {
-    for (file, f) in [("arf_210_1a", "210.1A"), ("arf_210_1b", "210.1B"), ("arf_210_2", "210.2"), ("arf_210_6", "210.6")] {
-        let path = format!("{}/../../specs/arf210/{file}.prd", env!("CARGO_MANIFEST_DIR"));
-        let src = std::fs::read_to_string(path).unwrap();
-        let form = parse_form(&src).unwrap();
-        let printed = prudence_core::syntax::print::print_form(&form, &arf210::SPEC_HEADER);
-        assert_eq!(printed, src, "{f}: run `cargo run -p arf210 -- fmt {f}`");
-        let _ = arf210::form(f).unwrap();
     }
 }

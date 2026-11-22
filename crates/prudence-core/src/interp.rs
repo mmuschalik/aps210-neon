@@ -270,7 +270,7 @@ impl<'a> Interp<'a> {
         Ok(it)
     }
 
-    /// Run the module's partition and check its invariants.
+    /// Run the module's first partition and check its invariants.
     pub fn run(&self) -> R<Output> {
         let part = self
             .module
@@ -278,9 +278,27 @@ impl<'a> Interp<'a> {
             .iter()
             .find(|d| matches!(d.kind, DeclKind::Partition { .. }))
             .ok_or("module has no partition")?;
+        self.run_partition(part)
+    }
+
+    /// Run the partition into `target` (e.g. `Arf210_6`). Only the views and
+    /// allocations it reaches are evaluated, so a stage that runs before a
+    /// return it does not read never touches that return's cells.
+    pub fn run_into(&self, target: &str) -> R<Output> {
+        let part = self
+            .module
+            .decls
+            .iter()
+            .find(|d| matches!(&d.kind, DeclKind::Partition { targets, .. } if targets.iter().any(|t| t == target)))
+            .ok_or_else(|| format!("module {} has no partition into {target}", self.module.name))?;
+        self.run_partition(part)
+    }
+
+    fn run_partition(&self, part: &Decl) -> R<Output> {
         // Evaluate views and allocations up front: per-slice provenance then
         // only reflects the rules applied to that slice.
-        for d in &self.module.decls {
+        let reach = crate::syntax::deps::reachable(self.module, part);
+        for d in self.module.decls.iter().filter(|d| reach.contains(d.name.as_str())) {
             match &d.kind {
                 DeclKind::View(b) => {
                     self.view(&d.name, b)?;
@@ -293,6 +311,7 @@ impl<'a> Interp<'a> {
         }
         let slices = self.partition(part)?;
         *self.slices.borrow_mut() = Some(slices.clone());
+        *self.slice_index.borrow_mut() = None;
         self.check_invariants()?;
         Ok(Output {
             slices,
@@ -694,6 +713,21 @@ impl<'a> Interp<'a> {
                 self.assumptions.borrow_mut().insert((subject, attribute), (self.render(&v), reason));
                 Ok(v)
             }
+            // A cell of another return (syntax::deps), bound by the runtime
+            // once that return is evaluated: the parameter `cell:<form>:<key>`.
+            "cell" => {
+                let (v, _) = self.args_named(args, scope)?;
+                let (Some(Val::Str(form)), Some(Val::Str(k))) = (v.first(), v.get(1)) else {
+                    return Err(at("cell(form: String, key: String)".into()));
+                };
+                let name = cell_param(form, k);
+                self.opts
+                    .params
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, v)| v.clone())
+                    .ok_or_else(|| at(format!("[{form} {k}] is not bound: run this after {form} is evaluated")))
+            }
             // The group consisting of just `x` (a fresh GroupId).
             "solo" => {
                 let (v, _) = self.args_named(args, scope)?;
@@ -915,7 +949,8 @@ impl<'a> Interp<'a> {
         let mut groups: Vec<(Val, Vec<Val>)> = Vec::new();
         let mut index: HashMap<String, usize> = HashMap::new();
         for r in self.rows(&src_ty) {
-            let g = self.member(&r, &per_field)?;
+            // `per: all`: one problem over every row.
+            let g = if per_field == "all" { Val::Str("all".into()) } else { self.member(&r, &per_field)? };
             let i = *index.entry(key(&g)).or_insert_with(|| {
                 groups.push((g.clone(), Vec::new()));
                 groups.len() - 1
@@ -1167,6 +1202,11 @@ fn list(v: Val) -> R<Vec<Val>> {
 }
 
 /// Canonical key for maps and allocations.
+/// The parameter through which the runtime binds `cell(form, key)`.
+pub fn cell_param(form: &str, key: &str) -> String {
+    format!("cell:{form}:{key}")
+}
+
 pub fn key(v: &Val) -> String {
     match v {
         Val::Rec(t, i) => format!("{t}#{i}"),

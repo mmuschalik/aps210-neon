@@ -5,10 +5,11 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::Command;
 
-use chrono::NaiveDate;
+use chrono::{Datelike, Days, NaiveDate};
 use deposits::wholesale::*;
 use num_traits::ToPrimitive;
 use prudence_core::Q;
+use prudence_core::date::{add_months, days_from_civil};
 use prudence_core::ir::{Cell, Expr};
 use prudence_core::uncertain::{Mode, Uncertain};
 
@@ -30,13 +31,6 @@ fn lean_file(name: &str, src: &str) -> (bool, String) {
     let path = dir.join(format!("{name}.lean"));
     std::fs::write(&path, src).unwrap();
     lake(&["env", "lean", path.to_str().unwrap()])
-}
-
-#[test]
-fn generated_model_is_up_to_date() {
-    let want = lean_source().unwrap();
-    let have = std::fs::read_to_string(lean_dir().join("Prudence/Wholesale.lean")).unwrap();
-    assert!(have == want, "lean/Prudence/Wholesale.lean is stale: run `cargo run -p deposits --bin wholesale-lean`");
 }
 
 #[test]
@@ -90,16 +84,26 @@ fn generated_model_agrees_with_the_interpreter() {
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         (s >> 33) % k
     };
-    let factors = match arf210::lean_targets().unwrap().remove(1).1 {
-        prudence_core::syntax::lean::Measure::Factor(f) => f,
-        _ => unreachable!(),
-    };
+    let factors = arf210::nsfr_factors().unwrap();
     let mut guards = String::new();
     let mut n = 0;
+    let rd_days = days_from_civil(i64::from(rd.year()), rd.month(), rd.day());
+    let m6 = add_months(rd_days, 6);
+    let m12 = add_months(rd_days, 12);
     for i in 0..150 {
         let kind = kinds[next(5) as usize];
         let bal = 1000 * (1 + next(900) as i64);
         let ub = |k: u64| if k == 0 { Uncertain::unknown("x") } else { Uncertain::Known(k == 1) };
+        let maturity = match next(4) {
+            0 => None,
+            1 => Some(rd + Days::new(90)),
+            2 => Some(rd + Days::new(250)),
+            _ => Some(rd + Days::new(500)),
+        };
+        let mat_lean = match maturity {
+            None => "none".to_string(),
+            Some(dt) => format!("(some {})", days_from_civil(i64::from(dt.year()), dt.month(), dt.day())),
+        };
         let d = Deposit {
             id: format!("d{i}"),
             customer_id: format!("c{i}"),
@@ -113,7 +117,7 @@ fn generated_model_agrees_with_the_interpreter() {
             } else {
                 Uncertain::Known(Q::from_integer((1000 * next(1000) as i64).into()))
             },
-            maturity: None,
+            maturity,
         };
         let c = Customer { id: d.customer_id.clone(), kind };
         for mode in [Mode::Conservative, Mode::Optimistic] {
@@ -136,9 +140,9 @@ fn generated_model_agrees_with_the_interpreter() {
             let term = format!(
                 "(let c : Customer := {{ kind := .{kind:?} }}\n  \
                  let d : Deposit := {{ holder := c, balance := {bal}, within_30_days := {}, called := {}, \
-                 fcs_eligible := {}, operational_service := {}, operational_balance := {} }}\n  \
-                 let W : World := {{ reporting_date := 0, fcs_limit := 250000, insured := fun _ _ => {cover}, \
-                 Customer_deposits := fun _ => [d] }}\n  \
+                 fcs_eligible := {}, operational_service := {}, operational_balance := {}, maturity := {mat_lean} }}\n  \
+                 let W : World := {{ reporting_date := {rd_days}, fcs_limit := 250000, insured := fun _ _ => {cover}, \
+                 Customer_deposits := fun _ => [d], m6 := {m6}, m12 := {m12} }}\n  \
                  (measure_Arf210_1A W {m} d, measure_Arf210_6 W {m} d))",
                 d.within_30_days,
                 d.called,

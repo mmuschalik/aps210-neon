@@ -8,30 +8,55 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-const SPEC: &str = r#"
-form T("ARF 999.1", "Test form") {
-  columns amount
-  input amount
-  item "1" "Total" {
-    amount = [1.1:amount]
-  } @cite("sum of items 1.1")
-  item "1.1" "A" {
-    amount = input
-  } @cite("Att A §46(b); APG 210 §109; ARS item 1.1")
-  item "1.2" "B" {
-    amount = input
-  } @cite("APS 210 Att A para 999; Att A para 46(z); Att C Table 9; ARS items 1.x, 77.7")
-}
-"#;
+const SPEC_JSON: &str = r#"{
+  "items": [{
+    "Form": {
+      "name": "T",
+      "code": "ARF 999.1",
+      "title": "Test form",
+      "columns": ["amount"],
+      "input": "amount",
+      "items": [
+        {
+          "id": "1",
+          "label": "Total",
+          "observer": false,
+          "cells": [["amount", {"Expr": {"Cell": ["1.1", "amount", {"line": 1, "col": 1}]}}]],
+          "anns": [{"name": "cite", "args": [{"name": null, "value": {"Str": ["sum of items 1.1", {"line": 1, "col": 1}]}}], "pos": {"line": 1, "col": 1}}],
+          "pos": {"line": 1, "col": 1}
+        },
+        {
+          "id": "1.1",
+          "label": "A",
+          "observer": false,
+          "cells": [["amount", {"Input": null}]],
+          "anns": [{"name": "cite", "args": [{"name": null, "value": {"Str": ["Att A §46(b); APG 210 §109; ARS item 1.1", {"line": 2, "col": 1}]}}], "pos": {"line": 2, "col": 1}}],
+          "pos": {"line": 2, "col": 1}
+        },
+        {
+          "id": "1.2",
+          "label": "B",
+          "observer": false,
+          "cells": [["amount", {"Input": null}]],
+          "anns": [{"name": "cite", "args": [{"name": null, "value": {"Str": ["APS 210 Att A para 999; Att A para 46(z); Att C Table 9; ARS items 1.x, 77.7", {"line": 3, "col": 1}]}}], "pos": {"line": 3, "col": 1}}],
+          "pos": {"line": 3, "col": 1}
+        }
+      ],
+      "checks": [],
+      "theorems": [],
+      "anns": []
+    }
+  }]
+}"#;
 
 #[test]
 fn findings_on_a_scratch_repo() {
     let dir = std::env::temp_dir().join(format!("trace-test-{}", std::process::id()));
-    std::fs::create_dir_all(dir.join("specs/t")).unwrap();
+    std::fs::create_dir_all(dir.join("specs/ir/forms")).unwrap();
     for f in ["aps-210.html", "apg-210.html"] {
         std::fs::copy(repo().join(f), dir.join(f)).unwrap();
     }
-    std::fs::write(dir.join("specs/t/t.prd"), SPEC).unwrap();
+    std::fs::write(dir.join("specs/ir/forms/t.json"), SPEC_JSON).unwrap();
     let r = trace::build(&dir).unwrap();
     std::fs::remove_dir_all(&dir).ok();
 

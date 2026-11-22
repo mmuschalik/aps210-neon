@@ -7,22 +7,25 @@
 //! the mechanical 30-day unwind. lean/Prudence/UnwindProofs.lean proves the
 //! two agree for every portfolio.
 
+pub mod hqla_rules;
+pub mod pool;
+
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use chrono::{Datelike, NaiveDate};
 use prudence_core::Q;
-use prudence_core::date::days_from_civil;
+use prudence_core::date::{add_months, days_from_civil};
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::syntax::ast::Module;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::load_module_json;
 use prudence_core::uncertain::{Mode, Uncertain};
 
-pub const SOURCE: &str = include_str!("../../../specs/secured/secured_funding.prd");
+pub const SOURCE: &str = include_str!("../../../specs/ir/modules/secured_funding.json");
 
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
-    M.get_or_init(|| parse_module(SOURCE, &["Arf210_1A"]).unwrap_or_else(|e| panic!("secured_funding.prd:\n{}", e.join("\n"))))
+    M.get_or_init(|| load_module_json(SOURCE, &["Arf210_1A"]).unwrap_or_else(|e| panic!("secured_funding.json:\n{}", e.join("\n"))))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -241,16 +244,124 @@ pub struct Run {
     pub unwind: BTreeMap<HqlaClass, Q>,
     /// Non-zero (record id, item, AUD) contributions behind `items`.
     pub parts: Vec<(String, String, Q)>,
+    /// Non-zero (record id, ARF 210.6 item, column, AUD) contributions for NSFR.
+    pub nsfr_parts: Vec<(String, String, String, Q)>,
     pub assumptions: BTreeMap<(String, String), (String, String)>,
+}
+
+fn nsfr_maturity_bucket(maturity: Option<NaiveDate>, default_when_none: &'static str, rd_days: i64) -> &'static str {
+    let Some(m) = maturity else {
+        return default_when_none;
+    };
+    let m_days = days_from_civil(i64::from(m.year()), m.month(), m.day());
+    if m_days < add_months(rd_days, 6) {
+        "b0"
+    } else if m_days < add_months(rd_days, 12) {
+        "b1"
+    } else {
+        "b2"
+    }
+}
+
+/// Classify a `Holding` into its ARF 210.6 `(item, column)` per APS 210 Att C paras 29-36.
+fn holding_nsfr(h: &Holding, rd_days: i64) -> (&'static str, &'static str) {
+    match h.kind {
+        AssetKind::NotesAndCoin => return ("20", "b0"),
+        AssetKind::RbaBalance | AssetKind::ForeignCentralBankBalance => {
+            return ("21", nsfr_maturity_bucket(h.maturity, "b0", rd_days));
+        }
+        _ => {}
+    }
+    let enc = h.encumbered;
+    let bucket = nsfr_maturity_bucket(h.maturity, "b2", rd_days);
+    // HQLA1 (Att C para 30: item 25.1 / 25.2.1)
+    let is_hqla1 = h.kind == AssetKind::DebtSecurity
+        && ((h.risk_weight == 0
+            && matches!(
+                h.issuer,
+                Issuer::AustralianGovernment
+                    | Issuer::StateCentralBorrowingAuthority
+                    | Issuer::ForeignSovereign
+                    | Issuer::GuaranteedByAustralianGovernment
+                    | Issuer::GuaranteedByForeignSovereign
+                    | Issuer::CentralBank
+                    | Issuer::PublicSectorEntity
+                    | Issuer::Supranational
+            ))
+            || (matches!(h.issuer, Issuer::ForeignSovereign | Issuer::CentralBank) && h.risk_weight > 20));
+    if is_hqla1 {
+        // Without an encumbrance end date, conservatively treat encumbered holdings as >= 1y (Att C para 23).
+        return (if enc { "25.2.3" } else { "25.1" }, bucket);
+    }
+    // HQLA2A (Att C para 33(a): item 30.1 / 30.2.3)
+    let is_hqla2a = (h.kind == AssetKind::DebtSecurity
+        && ((h.risk_weight == 20
+            && matches!(
+                h.issuer,
+                Issuer::ForeignSovereign | Issuer::CentralBank | Issuer::PublicSectorEntity | Issuer::Supranational
+            ))
+            || (h.issuer == Issuer::NonFinancialCorporateIssuer && h.rating_grade == 1)))
+        || (h.kind == AssetKind::CoveredBond && h.rating_grade == 1 && !h.own_or_associated);
+    if is_hqla2a {
+        return (if enc { "30.2.3" } else { "30.1" }, bucket);
+    }
+    // HQLA2B debt / RMBS (Att C para 34(a): item 31.1 / 31.2.2)
+    let is_hqla2b = (h.kind == AssetKind::DebtSecurity
+        && h.issuer == Issuer::NonFinancialCorporateIssuer
+        && (2..=3).contains(&h.rating_grade))
+        || (h.kind == AssetKind::Rmbs && h.rating_grade == 1 && !h.own_or_associated);
+    if is_hqla2b {
+        return (if enc { "31.2.2" } else { "31.1" }, bucket);
+    }
+    // ASX200 non-FI equities (Att C para 34(e): item 34.1 / 34.2.2, column b2 only)
+    if h.kind == AssetKind::Equity && h.issuer == Issuer::NonFinancialCorporateIssuer && h.index_constituent {
+        return (if enc { "34.2.2" } else { "34.1" }, "b2");
+    }
+    // All other non-HQLA securities / exchange-traded equities (Att C para 36(c)-(d): item 38.1 / 38.2.2).
+    // Note: CLF 10% RSF (items 26/27) is capped by LCR CLF (Att C para 32) and handled in assembly::aps210_rules.
+    (if enc { "38.2.2" } else { "38.1" }, bucket)
+}
+
+/// Classify a `Repo` into its ARF 210.6 `(item, column)` per APS 210 Att C paras 14-15, 29(c), 31, 33(b), 35(b).
+fn repo_nsfr(r: &Repo, rd_days: i64) -> (&'static str, &'static str) {
+    let bucket = nsfr_maturity_bucket(Some(r.maturity), "b0", rd_days);
+    match r.leg {
+        Leg::Lending => match r.counterparty {
+            // Claims on central banks < 1 year -> 32.1 (0% <6m, 50% 6m-1y); >= 1y -> 36.1:b2 (<=35% RW).
+            Counterparty::OffshoreCentralBank => {
+                if bucket == "b2" {
+                    ("36.1", "b2")
+                } else {
+                    ("32.1", bucket)
+                }
+            }
+            // Loans to domestic sovereign/PSE (non-FI, <=35% RW) -> 36.1 (50%/50%/65% RSF).
+            Counterparty::DomesticSovereignOrPse => ("36.1", bucket),
+            // Loans to FIs: HQLA1 freely re-hypothecable -> 23.1 (10%/50%/100%), else 24.1 (15%/50%/100%).
+            Counterparty::Other => {
+                if r.collateral_class == HqlaClass::Hqla1 && !r.rehypothecated {
+                    ("23.1", bucket)
+                } else {
+                    ("24.1", bucket)
+                }
+            }
+        },
+        Leg::Funding => match r.counterparty {
+            Counterparty::OffshoreCentralBank => ("11", bucket),
+            Counterparty::DomesticSovereignOrPse => ("10", bucket),
+            Counterparty::Other => ("12", bucket),
+        },
+    }
 }
 
 /// Run the module over holdings and secured transactions as at `reporting_date`.
 pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode: Mode, has_clf: bool) -> Result<Run, String> {
     let world = load(holdings, repos);
+    let rd_days = days_from_civil(i64::from(reporting_date.year()), reporting_date.month(), reporting_date.day());
     let opts = Options {
         mode,
         sense: None,
-        params: vec![("reporting_date".into(), date(reporting_date)), ("has_clf".into(), Val::Bool(has_clf))],
+        params: vec![("reporting_date".into(), Val::Date(rd_days)), ("has_clf".into(), Val::Bool(has_clf))],
     };
     let it = Interp::new(module(), &world, opts)?;
     let num = |v: Val| match v {
@@ -261,6 +372,7 @@ pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode
     let mut stock: BTreeMap<String, Q> = stock_items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
     let mut unwind: BTreeMap<HqlaClass, Q> = HqlaClass::ALL.iter().map(|k| (*k, Q::default())).collect();
     let mut parts = Vec::new();
+    let mut nsfr_parts = Vec::new();
     // Holdings: one role each, from the linear partition.
     let out = it.run()?;
     for sl in &out.slices {
@@ -278,6 +390,12 @@ pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode
             }
         }
     }
+    for h in holdings {
+        if h.market_value != Q::default() {
+            let (item, col) = holding_nsfr(h, rd_days);
+            nsfr_parts.push((h.id.clone(), item.to_string(), col.to_string(), h.market_value.clone()));
+        }
+    }
     for (n, repo) in repos.iter().enumerate() {
         let r = Val::Rec("Repo".into(), n);
         for (item, total) in items.iter_mut() {
@@ -290,9 +408,13 @@ pub fn run(holdings: &[Holding], repos: &[Repo], reporting_date: NaiveDate, mode
         for (k, total) in unwind.iter_mut() {
             *total += num(it.call_fn("unwind", vec![r.clone(), Val::Ctor(k.ctor().into(), vec![])])?)?;
         }
+        if repo.cash != Q::default() {
+            let (item, col) = repo_nsfr(repo, rd_days);
+            nsfr_parts.push((repo.id.clone(), item.to_string(), col.to_string(), repo.cash.clone()));
+        }
     }
     items.extend(stock);
-    Ok(Run { items, unwind, parts, assumptions: it.assumptions() })
+    Ok(Run { items, unwind, parts, nsfr_parts, assumptions: it.assumptions() })
 }
 
 /// ARF 210.1A inputs in AUD millions (the form's unit).
@@ -305,12 +427,3 @@ pub fn arf_inputs(run: &Run) -> BTreeMap<String, Q> {
 /// written to lean/Prudence/SecuredFunding.lean.
 pub const ADJUSTMENTS: [(&str, &str); 4] =
     [("1.5.1", "arf_1_5_1"), ("2.5.1", "arf_2_5_1"), ("3.4.1", "arf_3_4_1"), ("3.5.1", "arf_3_5_1")];
-
-pub fn lean_source() -> Result<String, String> {
-    use prudence_core::syntax::lean::{form_cells, generate};
-    let model = generate(module(), &[])?;
-    let cells = form_cells(arf210::lcr_all(), &ADJUSTMENTS)?;
-    let end = "end SecuredFunding\n";
-    let body = model.strip_suffix(end).ok_or("unexpected generated tail")?;
-    Ok(format!("{body}-- ARF 210.1A adjustment formulas\n\n{cells}{end}"))
-}

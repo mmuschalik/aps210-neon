@@ -1,22 +1,24 @@
 //! Derivatives and collateral: specs/derivatives/derivatives.prd.
 //! ARF 210.1A items 13.1-13.7 and 21.1; ARF 210.6 items 13.1.x, 40.1.x, 42.1.
 
+pub mod collateral;
+
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, Months, NaiveDate};
 use prudence_core::Q;
 use prudence_core::date::days_from_civil;
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::syntax::ast::Module;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::load_module_json;
 use prudence_core::uncertain::{Mode, Uncertain};
 
-pub const SOURCE: &str = include_str!("../../../specs/derivatives/derivatives.prd");
+pub const SOURCE: &str = include_str!("../../../specs/ir/modules/derivatives.json");
 
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
-    M.get_or_init(|| parse_module(SOURCE, &[]).unwrap_or_else(|e| panic!("derivatives.prd:\n{}", e.join("\n"))))
+    M.get_or_init(|| load_module_json(SOURCE, &[]).unwrap_or_else(|e| panic!("derivatives.json:\n{}", e.join("\n"))))
 }
 
 #[derive(Clone, Debug, Default)]
@@ -35,6 +37,16 @@ pub struct NettingSet {
     pub variation_margin_posted: Q,
     pub cash_vm_received_eligible: Q,
     pub initial_margin_posted: Q,
+    /// Clearing venue (bilateral OTC, CCP-cleared, or exchange-traded future).
+    pub clearing: collateral::ClearingKind,
+    /// Initial margin posted on behalf of a customer (ARF 210.6 item 42.2, exempt memo).
+    pub customer_initial_margin_posted: Q,
+    /// Cash/assets contributed to a CCP default fund (ARF 210.6 item 42.3, 85% RSF).
+    pub ccp_default_fund_contribution: Q,
+    /// Optional granular CSA substitution rights (overrides scalar `hqla_substitutable` when non-empty).
+    pub substitution_rights: Vec<collateral::SubstitutionRight>,
+    /// Optional lot-level posted/received collateral (overrides `posted_non_hqla1`/`received_reusable` when non-empty).
+    pub posted_lots: Vec<collateral::PostedCollateralLot>,
 }
 
 #[derive(Clone, Debug)]
@@ -103,11 +115,32 @@ pub fn load(b: &Book) -> Result<World, String> {
                     ("collateral_received".into(), n(&s.collateral_received)),
                     ("required_from_counterparty".into(), n(&s.required_from_counterparty)),
                     ("received_segregated".into(), Val::Bool(s.received_segregated)),
-                    ("hqla_substitutable".into(), n(&s.hqla_substitutable)),
+                    (
+                        "hqla_substitutable".into(),
+                        n(&if s.substitution_rights.is_empty() {
+                            s.hqla_substitutable.clone()
+                        } else {
+                            collateral::substitution_outflow(&s.substitution_rights, false)
+                        }),
+                    ),
                     ("due_not_called".into(), n(&s.due_not_called)),
                     ("downgrade_3_notches".into(), n(&s.downgrade_3_notches)),
-                    ("posted_non_hqla1".into(), n(&s.posted_non_hqla1)),
-                    ("received_reusable".into(), n(&s.received_reusable)),
+                    (
+                        "posted_non_hqla1".into(),
+                        n(&if s.posted_lots.is_empty() {
+                            s.posted_non_hqla1.clone()
+                        } else {
+                            collateral::posted_non_hqla1_valuation_base(&s.posted_lots)
+                        }),
+                    ),
+                    (
+                        "received_reusable".into(),
+                        n(&if s.posted_lots.is_empty() {
+                            s.received_reusable.clone()
+                        } else {
+                            Q::default()
+                        }),
+                    ),
                     ("variation_margin_posted".into(), n(&s.variation_margin_posted)),
                     ("cash_vm_received_eligible".into(), n(&s.cash_vm_received_eligible)),
                     ("initial_margin_posted".into(), n(&s.initial_margin_posted)),
@@ -198,6 +231,90 @@ fn num(v: Val) -> Result<Q, String> {
     }
 }
 
+/// Exact O(N log N) sliding-window evaluation of `largest_collateral_flow_in`
+/// (ARF 210.1A item 13.6, APS 210 Att A para 58), matching `Derivatives.lean`
+/// bit-for-bit.
+fn fast_largest_collateral_flow(
+    book: &Book,
+    reporting_date: NaiveDate,
+    known_at: NaiveDate,
+    mode: Mode,
+    ccy: Option<&str>,
+) -> Q {
+    let rd = days_from_civil(i64::from(reporting_date.year()), reporting_date.month(), reporting_date.day());
+    let ka = days_from_civil(i64::from(known_at.year()), known_at.month(), known_at.day());
+    let lb_date = reporting_date.checked_sub_months(Months::new(24)).unwrap();
+    let start_plus_30 = days_from_civil(i64::from(lb_date.year()), lb_date.month(), lb_date.day()) + 30;
+    let zero = Q::default();
+    let abs_q = |q: &Q| if *q < zero { -q } else { q.clone() };
+
+    let set_nets: std::collections::HashMap<&str, bool> = book
+        .sets
+        .iter()
+        .map(|s| (s.id.as_str(), s.netting_agreement.unwrap_or(mode == Mode::Optimistic)))
+        .collect();
+
+    // Filter realised collateral flows: valid <= reporting_date && recorded <= known_at.
+    let mut events: Vec<(i64, &str, &Q)> = Vec::new();
+    let mut ends = std::collections::BTreeSet::new();
+    ends.insert(start_plus_30);
+    ends.insert(rd);
+    for e in &book.collateral_flows {
+        if let Some(want) = ccy
+            && e.currency != want
+        {
+            continue;
+        }
+        let v = days_from_civil(i64::from(e.valid.year()), e.valid.month(), e.valid.day());
+        let r = days_from_civil(i64::from(e.recorded.year()), e.recorded.month(), e.recorded.day());
+        if v <= rd && r <= ka {
+            events.push((v, e.set.as_str(), &e.amount));
+            if v >= start_plus_30 && v <= rd {
+                ends.insert(v);
+            }
+            if v + 30 >= start_plus_30 && v + 30 <= rd {
+                ends.insert(v + 30);
+            }
+        }
+    }
+    if events.is_empty() {
+        return Q::default();
+    }
+    events.sort_by_key(|&(v, _, _)| v);
+
+    // Two-pointer sweep across sorted window_ends for (end - 30, end].
+    let mut per_set: std::collections::HashMap<&str, Q> = std::collections::HashMap::new();
+    let mut left = 0usize;
+    let mut right = 0usize;
+    let mut best = Q::default();
+    for end in ends {
+        let lo = end - 30;
+        while right < events.len() && events[right].0 <= end {
+            let (_, sid, amt) = events[right];
+            let nets = set_nets.get(sid).copied().unwrap_or(false);
+            let delta = if nets { amt.clone() } else { abs_q(amt) };
+            *per_set.entry(sid).or_default() += delta;
+            right += 1;
+        }
+        while left < right && events[left].0 <= lo {
+            let (_, sid, amt) = events[left];
+            let nets = set_nets.get(sid).copied().unwrap_or(false);
+            let delta = if nets { amt.clone() } else { abs_q(amt) };
+            *per_set.entry(sid).or_default() -= delta;
+            left += 1;
+        }
+        let mut total = Q::default();
+        for (sid, sum) in &per_set {
+            let nets = set_nets.get(sid).copied().unwrap_or(false);
+            total += if nets { abs_q(sum) } else { sum.clone() };
+        }
+        if total > best {
+            best = total;
+        }
+    }
+    best
+}
+
 pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mode) -> Result<Run, String> {
     let world = load(book)?;
     let params = vec![("reporting_date".into(), date(reporting_date)), ("known_at".into(), date(known_at))];
@@ -236,15 +353,24 @@ pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mo
             if q != Q::default() { nsfr_parts.push((set.id.clone(), item.clone(), q.clone())); }
             *total += q;
         }
+        // ARF 210.6 item 42.2 (exempt customer IM memo) & 42.3 (CCP default fund, 85% RSF).
+        if set.customer_initial_margin_posted != Q::default() {
+            nsfr_parts.push((set.id.clone(), "42.2".into(), set.customer_initial_margin_posted.clone()));
+            *nsfr.entry("42.2".into()).or_default() += set.customer_initial_margin_posted.clone();
+        }
+        if set.ccp_default_fund_contribution != Q::default() {
+            nsfr_parts.push((set.id.clone(), "42.3".into(), set.ccp_default_fund_contribution.clone()));
+            *nsfr.entry("42.3".into()).or_default() += set.ccp_default_fund_contribution.clone();
+        }
     }
-    let lookback = num(it.call_fn("largest_collateral_flow", vec![])?)?;
+    let lookback = fast_largest_collateral_flow(book, reporting_date, known_at, mode, None);
     if lookback != Q::default() {
         parts.push(("lookback".into(), "13.6".into(), lookback.clone()));
     }
     lcr.insert("13.6".into(), lookback);
     let ccys: std::collections::BTreeSet<&String> = book.collateral_flows.iter().map(|c| &c.currency).collect();
     for c in ccys {
-        let q = num(it.call_fn("largest_collateral_flow_in", vec![Val::Str(c.clone())])?)?;
+        let q = fast_largest_collateral_flow(book, reporting_date, known_at, mode, Some(c.as_str()));
         if q != Q::default() {
             by_currency.push(("lookback".into(), "13.6".into(), c.clone(), q));
         }
@@ -256,10 +382,4 @@ pub fn run(book: &Book, reporting_date: NaiveDate, known_at: NaiveDate, mode: Mo
 pub fn arf_inputs(m: &BTreeMap<String, Q>) -> BTreeMap<String, Q> {
     let million = Q::from_integer(1_000_000.into());
     m.iter().map(|(k, v)| (k.clone(), v / &million)).collect()
-}
-
-/// The Lean model generated from the spec, as written to
-/// lean/Prudence/Derivatives.lean.
-pub fn lean_source() -> Result<String, String> {
-    prudence_core::syntax::lean::generate(module(), &[])
 }

@@ -692,7 +692,7 @@ pub fn daily_lcr(bank: &Bank, ret: &Return, rd: NaiveDate, mode: Mode, extras: &
 pub fn mlh(bank: &Bank, rd: NaiveDate, mode: Mode) -> Result<Vec<checker::FormContribution>, String> {
     use secured::{AssetKind, Issuer};
     let mut a = Acc::default();
-    for h in bank.holdings.iter().filter(|h| !h.encumbered) {
+    for h in bank.holdings.iter().filter(|h| !h.encumbered && !bank.capital_relief_spv.contains(&h.id)) {
         let item = match (h.kind, h.issuer) {
             (AssetKind::NotesAndCoin, _) => "1.1",
             (AssetKind::RbaBalance, _) => "1.3.1",
@@ -708,31 +708,31 @@ pub fn mlh(bank: &Bank, rd: NaiveDate, mode: Mode) -> Result<Vec<checker::FormCo
         };
         a.add(&h.id, item, "amount", &h.market_value);
     }
-    for d in &bank.retail.accounts {
+    for d in bank.retail.accounts.iter().filter(|d| !bank.capital_relief_spv.contains(&d.id)) {
         a.add(&d.id, "12.1", "amount", d.balance.amount());
     }
-    for d in &bank.wholesale_deposits {
+    for d in bank.wholesale_deposits.iter().filter(|d| !bank.capital_relief_spv.contains(&d.id)) {
         a.add(&d.id, "12.1", "amount", &d.balance);
     }
-    for r in bank.repos.iter().filter(|r| r.leg == secured::Leg::Funding) {
+    for r in bank.repos.iter().filter(|r| r.leg == secured::Leg::Funding && !bank.capital_relief_spv.contains(&r.id)) {
         a.add(&r.id, "12.1", "amount", &r.cash);
     }
-    for x in &bank.funding.securities {
+    for x in bank.funding.securities.iter().filter(|x| !bank.capital_relief_spv.contains(&x.id)) {
         a.add(&x.id, "12.1", "amount", &x.amount);
     }
     // Placements with other ADIs: the spec's ARF 210.2 rows.
     for (id, form, item, _, q) in funding::run(&bank.funding, rd, mode)?.cells {
-        if form == "ARF 210.2" {
+        if form == "ARF 210.2" && !bank.capital_relief_spv.contains(&id) {
             a.add(&id, &item, "amount", &q);
         }
     }
-    for f in bank.commitments.facilities.iter().filter(|f| f.committed || f.mortgage_redraw) {
+    for f in bank.commitments.facilities.iter().filter(|f| (f.committed || f.mortgage_redraw) && !bank.capital_relief_spv.contains(&f.id)) {
         a.add(&f.id, if f.mortgage_redraw { "13.6" } else { "13.4" }, "amount", &f.undrawn);
     }
-    for c in &bank.commitments.commitments {
+    for c in bank.commitments.commitments.iter().filter(|c| !bank.capital_relief_spv.contains(&c.id)) {
         a.add(&c.id, "13.5", "amount", &c.amount);
     }
-    for o in &bank.commitments.obligations {
+    for o in bank.commitments.obligations.iter().filter(|o| !bank.capital_relief_spv.contains(&o.id)) {
         use obligations::ObligationKind;
         let row = match o.kind {
             ObligationKind::TradeFinance => "13.1",

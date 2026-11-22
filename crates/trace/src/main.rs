@@ -41,7 +41,7 @@ fn main() -> ExitCode {
         }
         bad += 1;
         let s = &report.sites[f.site];
-        println!("{}: {}:{}: {} ({})", f.kind.name(), s.file, s.line, f.detail, s.context);
+        println!("{}: {}:{}: {} ({})", f.kind.name(), s.file, s.line, f.detail, s.title);
     }
     let notes = report.findings.iter().filter(|f| f.kind == FindingKind::Note).count();
     println!("{notes} notes written as @cite (see the Checks tab)");

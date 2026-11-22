@@ -207,8 +207,18 @@ fn module_proof_obligations_hold() {
 #[test]
 fn the_netting_invariant_is_checked() {
     use prudence_core::interp::{Interp, Options};
-    let src = SOURCE.replace("net_out(s) <= sum(", "net_out(s) > sum(");
-    let m = prudence_core::syntax::parse_module(&src, &[]).unwrap();
+    use prudence_core::syntax::ast::{BinOp, DeclKind, Expr};
+    let mut m = module().clone();
+    for d in &mut m.decls {
+        if d.name == "netting_never_adds" {
+            if let DeclKind::Invariant(Expr::Forall { body, .. }) = &mut d.kind {
+                if let Expr::Binary(op, _, _) = body.as_mut() {
+                    *op = BinOp::Gt;
+                }
+            }
+        }
+    }
+    let m = prudence_core::syntax::validate_module(m, &[]).unwrap();
     let book = Book { sets: vec![set("a", Some(true))], ..Book::default() };
     let w = load(&book).unwrap();
     let params = vec![("reporting_date".into(), date(rd())), ("known_at".into(), date(rd()))];

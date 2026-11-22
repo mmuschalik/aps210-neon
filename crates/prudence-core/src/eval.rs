@@ -230,28 +230,75 @@ fn cmp(c: &Cmp, form: &Form, values: &mut HashMap<Ref, Value>) -> Option<bool> {
 mod tests {
     use super::*;
     use crate::num::{int, parse_decimal};
-    use crate::syntax::parse_form;
+    use crate::syntax::ast::{BinOp, CellDef, Expr, FormCheck, FormDecl, FormItem, Pos};
+    use crate::syntax::lower::lower_form;
 
     fn form() -> Form {
-        parse_form(
-            r#"form T("T", "t") {
-  columns amount, weighted
-  input amount
-  item "1" "a" {
-    amount = input
-    weighted = [1:amount] * 0.85
-  }
-  item "2" "b" {
-    amount = input(default: 5)
-  }
-  item "3" "ratio" {
-    amount = [1:weighted] / [2:amount]
-  }
-  check "pos" "a must be non-negative": [1:amount] >= 0
-}
-"#,
-        )
-        .unwrap()
+        let p = Pos::default();
+        let decl = FormDecl {
+            name: "T".into(),
+            code: "T".into(),
+            title: "t".into(),
+            columns: vec!["amount".into(), "weighted".into()],
+            input: "amount".into(),
+            items: vec![
+                FormItem {
+                    id: "1".into(),
+                    label: "a".into(),
+                    observer: false,
+                    cells: vec![
+                        ("amount".into(), CellDef::Input(None)),
+                        (
+                            "weighted".into(),
+                            CellDef::Expr(Expr::Binary(
+                                BinOp::Mul,
+                                Box::new(Expr::Cell("1".into(), "amount".into(), p)),
+                                Box::new(Expr::Num("0.85".into(), p)),
+                            )),
+                        ),
+                    ],
+                    anns: vec![],
+                    pos: p,
+                },
+                FormItem {
+                    id: "2".into(),
+                    label: "b".into(),
+                    observer: false,
+                    cells: vec![("amount".into(), CellDef::Input(Some(Expr::Num("5".into(), p))))],
+                    anns: vec![],
+                    pos: p,
+                },
+                FormItem {
+                    id: "3".into(),
+                    label: "ratio".into(),
+                    observer: false,
+                    cells: vec![(
+                        "amount".into(),
+                        CellDef::Expr(Expr::Binary(
+                            BinOp::Div,
+                            Box::new(Expr::Cell("1".into(), "weighted".into(), p)),
+                            Box::new(Expr::Cell("2".into(), "amount".into(), p)),
+                        )),
+                    )],
+                    anns: vec![],
+                    pos: p,
+                },
+            ],
+            checks: vec![FormCheck {
+                warn: false,
+                id: "pos".into(),
+                description: "a must be non-negative".into(),
+                cond: Expr::Binary(
+                    BinOp::Ge,
+                    Box::new(Expr::Cell("1".into(), "amount".into(), p)),
+                    Box::new(Expr::Num("0".into(), p)),
+                ),
+                anns: vec![],
+            }],
+            theorems: vec![],
+            anns: vec![],
+        };
+        lower_form(&decl).unwrap()
     }
 
     #[test]

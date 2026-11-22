@@ -102,12 +102,6 @@ fn lean_dir() -> PathBuf {
 }
 
 #[test]
-fn generated_lean_is_up_to_date() {
-    let have = std::fs::read_to_string(lean_dir().join("Prudence/SecuredFunding.lean")).unwrap();
-    assert!(have == lean_source().unwrap(), "stale: run `cargo run -p secured --bin secured-lean`");
-}
-
-#[test]
 fn unwind_theorem_checks_in_lean() {
     let proofs = std::fs::read_to_string(lean_dir().join("Prudence/UnwindProofs.lean")).unwrap();
     assert!(!proofs.contains("sorry") && !proofs.contains("native_decide"));
@@ -258,26 +252,41 @@ fn clf_from_raw_holdings_and_repos() {
 /// disjoint - a holding in the HQLA stock can never also be an inflow.
 #[test]
 fn holdings_are_a_linear_pool() {
-    use prudence_core::syntax::parse_module;
+    use prudence_core::syntax::ast::{Annotation, BinOp, DeclKind, Expr, Pos};
+    use prudence_core::syntax::validate_module;
     let forms = ["Arf210_1A"];
     // A second placement of holdings into the same form is a type error.
-    let twice = SOURCE.to_string()
-        + "\n";
-    let twice = twice.replacen(
-        "  // ---------------------------------------------------------------- facts about a transaction",
-        "  partition g: Holding into Arf210_1A splitting g.market_value {\n    case true =>\n      lcr: \"21.3\"\n      value: g.market_value\n      memo: none\n  }\n\n  // ---------------------------------------------------------------- facts about a transaction",
-        1,
-    );
-    let errs = parse_module(&twice, &forms).unwrap_err();
+    let mut twice = module().clone();
+    let part = twice.decls.iter().find(|d| matches!(d.kind, DeclKind::Partition { .. })).unwrap().clone();
+    twice.decls.push(part);
+    let errs = validate_module(twice, &forms).unwrap_err();
     assert!(errs.iter().any(|e| e.contains("linear data `Holding` is partitioned into Arf210_1A 2 times")), "{errs:?}");
     // Overlapping roles (a stock holding that also flows in) fail the Z3 proof.
-    let overlap = SOURCE.replacen("    case !in_stock(h) && !in_clf(h) && maturing_security(h) =>", "    case !in_clf(h) && maturing_security(h) =>", 1);
-    assert_ne!(overlap, SOURCE);
-    let m = parse_module(&overlap, &forms).unwrap();
+    let mut overlap = module().clone();
+    for d in &mut overlap.decls {
+        if let DeclKind::Partition { cases, .. } = &mut d.kind {
+            // Drop the `!in_stock(h)` guard from case 2 so stock + maturing overlap.
+            if let Expr::Binary(BinOp::And, lhs, rhs) = &cases[2].cond {
+                if let Expr::Binary(BinOp::And, _, not_clf) = lhs.as_ref() {
+                    cases[2].cond = Expr::Binary(BinOp::And, not_clf.clone(), rhs.clone());
+                }
+            }
+        }
+    }
+    let m = validate_module(overlap, &forms).unwrap();
     let obligations = prudence_core::syntax::prove::prove_module(&m).unwrap();
-    assert!(obligations.iter().any(|o| !o.proven && o.obligation.contains("disjoint")), "{:?}", obligations.iter().map(|o| (&o.obligation, o.proven)).collect::<Vec<_>>());
+    assert!(
+        obligations.iter().any(|o| !o.proven && o.obligation.contains("disjoint")),
+        "{:?}",
+        obligations.iter().map(|o| (&o.obligation, o.proven)).collect::<Vec<_>>()
+    );
     // A linear type that is never partitioned is a type error.
-    let unplaced = SOURCE.replacen("data Repo : Contract<", "@linear data Repo : Contract<", 1);
-    let errs = parse_module(&unplaced, &forms).unwrap_err();
+    let mut unplaced = module().clone();
+    for d in &mut unplaced.decls {
+        if d.name == "Repo" {
+            d.anns.push(Annotation { name: "linear".into(), args: vec![], pos: Pos::default() });
+        }
+    }
+    let errs = validate_module(unplaced, &forms).unwrap_err();
     assert!(errs.iter().any(|e| e.contains("linear data `Repo` is never partitioned")), "{errs:?}");
 }

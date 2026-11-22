@@ -116,13 +116,15 @@ fn daily_report_ties_to_the_lcr_and_mlh_returns() {
 /// A total that sums its own "of which" row is rejected when the form is built.
 #[test]
 fn totals_cannot_sum_their_memo_rows() {
+    use prudence_core::syntax::ast::{BinOp, CellDef, Expr, Pos, TopLevel};
     let src = arf210::SPECS.iter().find(|(c, _)| *c == "ARF 210.1A").unwrap().1;
-    let bad = src.replacen(
-        "amount   = [20.1:amount] + [20.2:amount] + [20.3:amount] + [20.4:amount] + [20.5:amount] + [20.6:amount]",
-        "amount   = [20.1:amount] + [20.2:amount] + [20.3:amount] + [20.4:amount] + [20.5:amount] + [20.6:amount] + [20.7:amount]",
-        1,
-    );
-    assert_ne!(bad, src, "the mutation applies");
-    let err = prudence_core::syntax::parse_form(&bad).unwrap_err();
+    let mut file = prudence_core::syntax::load_file_json(src).unwrap();
+    let TopLevel::Form(ref mut f) = file.items[0] else { panic!() };
+    let item20 = f.items.iter_mut().find(|it| it.id == "20").unwrap();
+    let (_, cell) = item20.cells.iter_mut().find(|(c, _)| c == "amount").unwrap();
+    if let CellDef::Expr(e) = cell {
+        *e = Expr::Binary(BinOp::Add, Box::new(e.clone()), Box::new(Expr::Cell("20.7".into(), "amount".into(), Pos::default())));
+    }
+    let err = prudence_core::syntax::lower::lower_form(f).unwrap_err();
     assert!(err.contains("sums its memo row [20.7:amount]"), "{err}");
 }

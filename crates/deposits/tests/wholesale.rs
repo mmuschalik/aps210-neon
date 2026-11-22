@@ -94,3 +94,57 @@ fn module_proof_obligations_hold() {
         assert!(o.proven, "{} NOT proven:\n{}", o.obligation, o.counterexample);
     }
 }
+
+#[test]
+fn nsfr_gt_30d_maturity_and_counterparty_routing() {
+    let cust = [
+        Customer { id: "corp".into(), kind: Kind::NonFinancialCorporate },
+        Customer { id: "sov".into(), kind: Kind::SovereignCentralBankPseMdb },
+        Customer { id: "fi".into(), kind: Kind::OtherFinancialInstitution },
+    ];
+    let mut corp_9m = dep("corp_9m", "corp", 100);
+    corp_9m.within_30_days = false;
+    corp_9m.maturity = Some(NaiveDate::from_ymd_opt(2027, 6, 30).unwrap()); // 9m -> b1 (50% ASF)
+
+    let mut sov_18m = dep("sov_18m", "sov", 200);
+    sov_18m.within_30_days = false;
+    sov_18m.maturity = Some(NaiveDate::from_ymd_opt(2028, 3, 31).unwrap()); // 18m -> b2 (100% ASF)
+
+    let mut fi_9m = dep("fi_9m", "fi", 300);
+    fi_9m.within_30_days = false;
+    fi_9m.maturity = Some(NaiveDate::from_ymd_opt(2027, 6, 30).unwrap()); // 9m -> b1 (50% ASF)
+
+    let mut fi_2m = dep("fi_2m", "fi", 400);
+    fi_2m.within_30_days = false;
+    fi_2m.maturity = Some(NaiveDate::from_ymd_opt(2026, 11, 30).unwrap()); // 2m -> b0 (0% ASF)
+
+    let mut corp_called = dep("corp_called", "corp", 50);
+    corp_called.called = true;
+    corp_called.maturity = Some(NaiveDate::from_ymd_opt(2028, 3, 31).unwrap()); // called -> b0 (50% ASF)
+
+    let s = run(&cust, &[corp_9m, sov_18m, fi_9m, fi_2m, corp_called], rd(), Mode::Conservative).unwrap();
+    let nsfr_of = |acct: &str| -> Vec<(String, String)> {
+        s.iter().filter(|x| x.account == acct).map(|x| x.nsfr.clone()).collect()
+    };
+    assert_eq!(nsfr_of("corp_9m"), vec![("9".into(), "b1".into())]);
+    assert_eq!(nsfr_of("sov_18m"), vec![("10".into(), "b2".into())]);
+    assert_eq!(nsfr_of("fi_9m"), vec![("12".into(), "b1".into())]);
+    assert_eq!(nsfr_of("fi_2m"), vec![("12".into(), "b0".into())]);
+    assert_eq!(nsfr_of("corp_called"), vec![("9".into(), "b0".into())]);
+
+    // Evaluate on ARF 210.6:
+    // corp_9m: 100k * 50% = 50k
+    // sov_18m: 200k * 100% = 200k
+    // fi_9m:   300k * 50% = 150k
+    // fi_2m:   400k * 0% = 0
+    // corp_called: 50k * 50% = 25k
+    // Total ASF = 425k
+    let mut inputs: std::collections::BTreeMap<String, Q> = std::collections::BTreeMap::new();
+    let million = Q::from_integer(1_000_000.into());
+    for x in &s {
+        let key = format!("{}:{}", x.nsfr.0, x.nsfr.1);
+        *inputs.entry(key).or_default() += &x.amount / &million;
+    }
+    let ev = evaluate(arf210::nsfr(), inputs.iter().map(|(a, b)| (a.as_str(), b.clone())), Missing::Zero).unwrap();
+    assert_eq!(ev.q("19:calc") * &million, k(425));
+}

@@ -15,6 +15,8 @@ pub struct Entry {
     /// As printed: `46.`, `(b)`, `Table 3`.
     pub label: String,
     pub text: String,
+    /// The `<h4>` heading it sits under (`Retail deposit outflows`), if any.
+    pub heading: String,
     /// Element id in the APRA page (for a link to apra.gov.au).
     pub html_id: String,
 }
@@ -41,7 +43,7 @@ impl Source {
         let url = between(&html, "<link rel=\"canonical\" href=\"", "\"").unwrap_or_default().to_string();
         // The body proper: skip site navigation before the first paragraph's fragment.
         let mut sections: Vec<Section> = vec![];
-        let (mut part, mut title) = ("".to_string(), "".to_string());
+        let (mut part, mut title, mut heading) = (String::new(), String::new(), String::new());
         let mut att: Option<char> = None;
         let mut i = 0;
         while let Some(off) = html[i..].find('<') {
@@ -61,8 +63,12 @@ impl Source {
                         att = between(open_tag, "id=\"Attachment-", "\"").and_then(|a| a.chars().next());
                         part = text;
                         title.clear();
+                        heading.clear();
                     }
-                    "h3" => title = text,
+                    "h3" => {
+                        title = text;
+                        heading.clear();
+                    }
                     _ => {
                         if let Some(r) = text.strip_prefix("Table ") {
                             let num: String = r.chars().take_while(char::is_ascii_digit).collect();
@@ -75,9 +81,12 @@ impl Source {
                                     r: Ref { doc, loc: Loc::Table { att, num, footnote: None } },
                                     label: format!("Table {num}"),
                                     text: caption,
+                                    heading: heading.clone(),
                                     html_id: frag.to_string(),
                                 });
                             }
+                        } else {
+                            heading = text;
                         }
                     }
                 }
@@ -89,7 +98,7 @@ impl Source {
             let (Some(label), Some(id)) = (between(rest, "data-item-number=\"", "\""), between(rest, " id=\"", "\"")) else { continue };
             let Some(r) = parse_id(doc, id) else { continue };
             let Some(text) = element_text(rest) else { continue };
-            push(&mut sections, &part, &title, Entry { r, label: label.to_string(), text, html_id: id.to_string() });
+            push(&mut sections, &part, &title, Entry { r, label: label.to_string(), text, heading: heading.clone(), html_id: id.to_string() });
         }
         Ok(Source { doc, url, sections })
     }

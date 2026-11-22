@@ -1,113 +1,169 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Prudence Trace</title>
+<title>APS 210 Traceability</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg: #F6F6F4; --surface: #FFFFFF; --ink: #16181D; --ink-2: #3F4552; --muted: #5B6270;
   --line: #E3E4E8; --line-2: #F0F1F3;
   --accent: #2453C7; --accent-ink: #173A94; --accent-bg: #E8EEFC; --accent-bg-2: #F2F5FD;
+  --ok-ink: #1C6B43; --ok-bg: #E6F4EC;
   --warn-ink: #7A4F00; --warn-bg: #FFF8E8; --warn-line: #F0D79A; --warn-dot: #C27A00;
   --bad-ink: #9B1C1C; --bad-bg: #FDECEC;
-  --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+  --off: #B9BCC4;
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --serif: Georgia, "Times New Roman", serif;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111317; --surface: #191C22; --ink: #E8E9EC; --ink-2: #C3C6CE; --muted: #9AA0AC;
-    --line: #2C3038; --line-2: #23262D;
-    --accent: #7FA2F5; --accent-ink: #B5C8FA; --accent-bg: #1E2A47; --accent-bg-2: #1A2234;
-    --warn-ink: #F2C46B; --warn-bg: #2B2414; --warn-line: #5C4A1E; --warn-dot: #E0A23A;
-    --bad-ink: #F59B9B; --bad-bg: #3A1C1C;
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  --bg: #111317; --surface: #191C22; --ink: #E8E9EC; --ink-2: #C3C6CE; --muted: #9AA0AC;
+  --line: #2C3038; --line-2: #23262D;
+  --accent: #7FA2F5; --accent-ink: #B5C8FA; --accent-bg: #1E2A47; --accent-bg-2: #1A2234;
+  --ok-ink: #7FD1A3; --ok-bg: #16301F;
+  --warn-ink: #F2C46B; --warn-bg: #2B2414; --warn-line: #5C4A1E; --warn-dot: #E0A23A;
+  --bad-ink: #F59B9B; --bad-bg: #3A1C1C;
+  --off: #4A4F59;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 Inter, system-ui, -apple-system, sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
 a { color: var(--accent); }
+a:hover { color: var(--accent-ink); }
 button { font: inherit; color: inherit; }
-code, .mono { font-family: var(--mono); font-size: 12.5px; }
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
-header .brand { font-weight: 700; font-size: 15px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+h2 { margin: 0; font-size: 16px; font-weight: 600; }
+p { margin: 0; }
+
+/* header */
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 10px 24px; min-height: 56px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+.brand { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
 nav.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-nav.tabs a { padding: 7px 12px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
+nav.tabs a { padding: 8px 12px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
 nav.tabs a[aria-current="page"] { background: var(--accent-bg); color: var(--accent-ink); font-weight: 600; }
-header .grow { flex: 1; }
-header input { width: min(320px, 100%); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
-.meta { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.grow { flex: 1; }
+.search { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.search input { width: min(280px, 60vw); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--ink); background: var(--surface); }
+.version { font-size: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink-2); }
+.theme { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--ink-2); }
+
+/* overview */
+.page { max-width: 1160px; margin: 0 auto; padding: 36px 32px 64px; display: flex; flex-direction: column; gap: 36px; }
+.lede { font-size: 16px; color: var(--ink-2); max-width: 760px; margin-top: 10px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+a.card { display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: var(--ink); }
+a.card:hover { border-color: var(--accent); }
+.big { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+.eyebrow { font-size: 12px; font-weight: 600; color: var(--muted); }
+.bar { height: 8px; background: var(--line-2); border-radius: 4px; overflow: hidden; }
+.bar > div { height: 8px; background: var(--accent); border-radius: 4px; }
+.small { font-size: 13px; color: var(--muted); }
+.muted-card { background: transparent; border-style: dashed; }
+.section-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.list { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.list > * { display: flex; gap: 14px; align-items: flex-start; padding: 14px 18px; border-top: 1px solid var(--line-2); text-decoration: none; color: var(--ink); }
+.list > *:first-child { border-top: 0; }
+.list > a:hover { background: var(--accent-bg-2); }
+.list .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.list .title { font-weight: 600; }
+.badge { flex: none; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.badge.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.badge.accent { background: var(--accent-bg); color: var(--accent-ink); }
+.badge.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.badge.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.badge.plain { background: var(--line-2); color: var(--ink-2); font-weight: 500; }
+.health { display: flex; gap: 12px; align-items: center; padding: 14px 18px; border-radius: 12px; }
+.health.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.health.bad { background: var(--bad-bg); color: var(--bad-ink); }
+svg.icon { flex: none; }
+
+/* browse */
 .layout { display: flex; flex-wrap: wrap; align-items: stretch; min-height: calc(100vh - 57px); }
-aside.nav { flex: 1 1 300px; max-width: 340px; background: var(--surface); border-right: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-main { flex: 999 1 520px; min-width: 0; padding: 28px 32px; display: flex; flex-direction: column; gap: 20px; }
-aside.cited { flex: 1 1 340px; max-width: 440px; background: var(--surface); border-left: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-.label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-.doc { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; text-align: left; background: none; }
-.doc[aria-pressed="true"] { border-color: var(--line); background: var(--accent-bg-2); }
-.doc .row { display: flex; justify-content: space-between; font-weight: 600; }
-.bar { height: 6px; background: var(--line-2); border-radius: 3px; overflow: hidden; }
-.bar > div { height: 6px; background: var(--accent); }
-.small { font-size: 12px; color: var(--muted); }
+aside.nav { flex: 1 1 300px; max-width: 340px; background: var(--surface); border-right: 1px solid var(--line); padding: 20px 16px; display: flex; flex-direction: column; gap: 16px; }
+main.clause { flex: 999 1 520px; min-width: 0; padding: 28px 36px 48px; display: flex; flex-direction: column; gap: 20px; }
+aside.uses { flex: 1 1 340px; max-width: 440px; background: var(--surface); border-left: 1px solid var(--line); padding: 24px 20px; display: flex; flex-direction: column; gap: 18px; }
+.label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.docs { display: flex; gap: 6px; }
+.docs button { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 600; }
+.docs button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--accent-bg); color: var(--accent-ink); }
 .filter { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
-.toc { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; max-height: calc(100vh - 330px); }
-.toc .part { font-size: 12px; font-weight: 700; color: var(--ink-2); margin: 12px 0 2px; }
-.toc .sec { font-size: 12px; color: var(--muted); margin: 8px 0 2px 2px; }
-.toc a { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; }
+.toc { display: flex; flex-direction: column; gap: 1px; overflow-y: auto; max-height: calc(100vh - 260px); margin: 0 -6px; padding: 0 6px; }
+.toc .part { font-size: 13px; font-weight: 700; color: var(--ink); margin: 16px 0 4px; }
+.toc .part:first-child { margin-top: 0; }
+.toc .head { font-size: 12px; color: var(--muted); margin: 10px 0 2px 8px; }
+.toc a { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 13px; }
 .toc a:hover { background: var(--line-2); }
 .toc a[aria-current="true"] { background: var(--accent-bg); }
 .toc a.gap { background: var(--warn-bg); }
+.toc a.gap[aria-current="true"] { box-shadow: inset 0 0 0 1px var(--warn-line); }
 .toc .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toc .n { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc a.gap .n { color: var(--warn-ink); }
 .dot { width: 8px; height: 8px; border-radius: 4px; flex: none; background: var(--accent); }
 .dot.gap { background: var(--warn-dot); }
-.toc .n { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-.toc a.gap .n { color: var(--warn-ink); }
-h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
-h2 { margin: 0; font-size: 15px; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; }
-.chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-bg); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
-.chip.warn { background: var(--warn-bg); color: var(--warn-ink); }
-.chip.bad { background: var(--bad-bg); color: var(--bad-ink); }
-.chip.plain { background: var(--line-2); color: var(--ink-2); font-weight: 500; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; }
-.text { display: flex; flex-direction: column; gap: 10px; }
-.text p { margin: 0; font-family: var(--serif); font-size: 16px; line-height: 1.6; }
-.text p.sub { margin-left: 24px; padding: 4px 10px; border-radius: 6px; }
-.text p.sub.hit { background: var(--accent-bg-2); box-shadow: inset 0 0 0 1px var(--accent-bg); }
-.text .who { font-family: Inter, system-ui, sans-serif; font-size: 12px; color: var(--accent-ink); font-weight: 600; margin-left: 6px; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: flex; align-items: center; gap: 6px; }
 .crumbs { font-size: 13px; color: var(--muted); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.source { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; }
+.source .top { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); }
+.source p { font-family: var(--serif); font-size: 16.5px; line-height: 1.65; }
+.source p.sub { margin-left: 24px; padding: 6px 12px; border-radius: 8px; }
+.source p.sub.hit { background: var(--accent-bg-2); }
+.source .who { font-family: var(--sans); font-size: 12px; color: var(--accent-ink); font-weight: 600; }
+.note { padding: 14px 16px; border-radius: 10px; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink); }
+.gaps { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.gaps a { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--warn-line); border-radius: 10px; text-decoration: none; color: var(--ink); }
+.gaps a:hover { background: var(--warn-bg); }
+.gaps .g { font-weight: 600; }
+.gaps .g span { font-weight: 500; color: var(--warn-ink); }
+.gaps .x { font-size: 13px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pager { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
-.site { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
-.site .ctx { font-weight: 600; font-size: 13px; }
-.site .src { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 6px 8px; border-radius: 6px; }
-.site .loc { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
-.empty { padding: 16px; border-radius: 10px; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink); }
-.full { flex: 1 1 100%; padding: 28px 32px; display: flex; flex-direction: column; gap: 18px; max-width: 1200px; }
+.use { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.use .ut { font-weight: 600; font-size: 13.5px; }
+.use .us { font-size: 12px; color: var(--muted); }
+.use details { margin-top: 4px; }
+.use summary { font-size: 12px; color: var(--accent); cursor: pointer; }
+.use pre { margin: 6px 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 8px 10px; border-radius: 6px; }
+.more { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 4px 0; text-align: left; font-size: 13px; }
+
+/* engineering */
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-td { padding: 8px 10px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
-.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
-.stat b { display: block; font-size: 24px; }
+th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 8px 12px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+details.file { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+details.file summary { cursor: pointer; font-weight: 600; }
+.uses-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; margin-top: 12px; }
+
 @media (max-width: 720px) {
-  header, main, .full { padding-left: 16px; padding-right: 16px; }
-  aside.nav, aside.cited { max-width: none; border: 0; }
-  .toc { max-height: 280px; }
+  header { padding: 10px 16px; }
+  .page { padding: 24px 16px 48px; }
+  main.clause { padding: 20px 16px; }
+  aside.nav, aside.uses { max-width: none; border: 0; }
+  .toc { max-height: 300px; }
+  .source { padding: 18px; }
 }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">Prudence Trace</div>
+  <div class="brand">APS 210 Traceability</div>
   <nav class="tabs" aria-label="Views">
-    <a href="#clauses" data-view="clauses">Clauses</a>
-    <a href="#specs" data-view="specs">Specs</a>
-    <a href="#checks" data-view="checks">Checks <span id="nfind"></span></a>
+    <a href="#overview" data-view="overview">Overview</a>
+    <a href="#browse" data-view="browse">Browse the standard</a>
+    <a href="#engineering" data-view="engineering">Engineering</a>
   </nav>
   <div class="grow"></div>
-  <label class="small" style="display:flex;gap:8px;align-items:center">Search <input id="q" type="search" placeholder="Att A para 46, sme_threshold, 9.1…"></label>
-  <div class="meta" id="meta"></div>
+  <label class="search">Search <input id="q" type="search" placeholder="e.g. SME, Table 3, operational deposits"></label>
+  <span class="version" id="version"></span>
+  <button class="theme" id="theme" type="button"></button>
 </header>
 <div id="app"></div>
 <script id="data" type="application/json">/*DATA*/</script>
@@ -115,189 +171,391 @@ td { padding: 8px 10px; border-bottom: 1px solid var(--line-2); vertical-align: 
 "use strict";
 const D = JSON.parse(document.getElementById("data").textContent);
 const app = document.getElementById("app");
-const state = { doc: 0, gapsOnly: false, q: "" };
-try { Object.assign(state, JSON.parse(localStorage.getItem("trace") || "{}"), { q: "" }); } catch (e) {}
-const save = () => { try { localStorage.setItem("trace", JSON.stringify({ doc: state.doc, gapsOnly: state.gapsOnly })); } catch (e) {} };
+const state = { doc: 0, gapsOnly: false, q: "", theme: "light" };
+try { Object.assign(state, JSON.parse(localStorage.getItem("aps210-trace") || "{}"), { q: "" }); } catch (e) {}
+const save = () => { try { localStorage.setItem("aps210-trace", JSON.stringify({ doc: state.doc, gapsOnly: state.gapsOnly, theme: state.theme })); } catch (e) {} };
 
-// Index: canonical key -> entry (with doc/section), plus every key that exists.
-const byKey = new Map();
-D.docs.forEach((d, di) => d.sections.forEach(s => s.entries.forEach(e => byKey.set(e.key, { e, s, d, di }))));
-const paraOf = key => key.replace(/\([a-z0-9]+\)$/, "");
-const findings = new Map(); // site -> findings
-D.findings.forEach(f => { (findings.get(f.site) || findings.set(f.site, []).get(f.site)).push(f); });
-document.getElementById("meta").textContent = D.meta.rev + " · " + D.sites.length + " citations";
-document.getElementById("nfind").textContent = "(" + D.findings.filter(f => f.kind !== "note").length + ")";
-
+// ---------------------------------------------------------------- helpers
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
-    if (k === "class") el.className = v; else if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v === true ? "" : v);
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
   }
-  for (const k of kids.flat()) if (k != null && k !== false) el.append(k instanceof Node ? k : String(k));
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) el.append(k instanceof Node ? k : String(k));
   return el;
 }
-const href = key => "#c/" + encodeURIComponent(key);
-const short = key => key.replace(/^APS 210 /, "").replace(/^APG 210 /, "APG ");
+const ICON = {
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>'
+};
+function icon(name, size) {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("class", "icon"); s.setAttribute("aria-hidden", "true"); s.setAttribute("width", size || 18); s.setAttribute("height", size || 18);
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("fill", "none"); s.setAttribute("stroke", "currentColor");
+  s.setAttribute("stroke-width", "2.2"); s.setAttribute("stroke-linecap", "round"); s.setAttribute("stroke-linejoin", "round");
+  s.innerHTML = ICON[name]; return s;
+}
+const pct = (c, t) => t ? Math.round(100 * c / t) : 0;
+const plural = (n, one, many) => n + " " + (n === 1 ? one : (many || one + "s"));
+const groupBy = (xs, f) => { const m = new Map(); for (const x of xs) { const k = f(x); (m.get(k) || m.set(k, []).get(k)).push(x); } return m; };
+
+// Plain words from spec identifiers: sme_threshold -> "SME threshold", RetailAndSmeDeposits -> "Retail and SME deposits".
+const ACRONYMS = new Set(["sme", "smes", "hqla", "hqla1", "hqla2", "hqla2a", "hqla2b", "fcs", "clf", "adi", "adis", "nsfr", "lcr", "mlh", "pie", "smsf", "asf", "rsf", "fx", "aud", "cgs", "rba", "nco", "otc", "arf", "aps", "apg", "ars", "ela", "lcr", "id", "gl", "ccy", "pse", "mdb", "rmbs", "abs"]);
+function words(id) {
+  const w = id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").split(/[\s_\-]+/).filter(Boolean)
+    .map(x => ACRONYMS.has(x.toLowerCase()) ? x.toUpperCase() : x.toLowerCase());
+  const s = w.join(" ").replace(/\b(\d+) ?pct\b/g, "$1%");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+const owner = s => /^ARF /.test(s.owner) ? s.owner.split(" ").slice(0, 2).join(" ") : words(s.owner);
+
+// One citation, in words.
+function describe(s) {
+  const t = s.title;
+  switch (s.kind) {
+    case "form item": return { title: s.detail, sub: t.replace(" item ", " line ") };
+    case "check": return { title: s.detail, sub: "Validation check · " + owner(s) };
+    case "theorem": case "invariant": return { title: s.detail || words(t.replace(/^\w+ /, "")), sub: owner(s) };
+    case "param": return { title: words(t.replace(/^param /, "")), sub: "Setting · " + owner(s) };
+    case "field": {
+      const [rec, f] = t.split(".");
+      return f ? { title: words(rec) + ": " + words(f).toLowerCase().replace(/\b(sme|fcs|pie|aud|hqla\w*)\b/g, m => m.toUpperCase()), sub: "Data input · " + owner(s) }
+               : { title: words(t.replace(/^\w+ /, "")), sub: "Data input · " + owner(s) };
+    }
+    case "rule": {
+      const pm = t.match(/^partition (\w+)(?: · (\w+))?/);
+      if (pm) return { title: words(pm[1]) + (pm[2] ? " → " + words(pm[2]) : ""), sub: "Report mapping · " + owner(s) };
+      const [rule, ...arms] = t.replace(/^(fn|view|alloc|partition) /, "").split(" → ");
+      return { title: words(rule.replace(/ · .*/, "")) + (arms.length ? ": " + arms.map(words).join(" → ") : "") + (rule.includes(" · ") ? " (" + words(rule.split(" · ")[1]) + ")" : ""), sub: "Calculation rule · " + owner(s) };
+    }
+    default: return { title: words(t), sub: owner(s) };
+  }
+}
+const short = s => describe(s).title;
+
+// ---------------------------------------------------------------- data
+const byKey = new Map();
+D.docs.forEach((d, di) => d.sections.forEach(sec => sec.entries.forEach(e => byKey.set(e.key, { e, sec, d, di }))));
+const paraOf = key => key.replace(/\([a-z0-9]+\)$/, "");
+const tableKey = key => key.replace(/ footnote \d+$/, "");
+const href = key => "#browse/" + encodeURIComponent(key);
+const findings = groupBy(D.findings, f => f.site);
+const problems = D.findings.filter(f => f.kind !== "note");
+const attachment = part => /^Attachment [A-Z]/.test(part);
+const [partName, partTopic] = [p => p.split(/ +[-–] +/)[0], p => p.split(/ +[-–] +/).slice(1).join(" - ")];
+function clauseTitle(e) {
+  if (e.kind === "table") return e.key.replace(/^APS 210 /, "").replace("Att ", "Attachment ") + ": " + e.text;
+  const m = e.key.match(/^(APS|APG) 210 (?:Att ([A-Z]) )?para (\d+)/);
+  if (!m) return e.key;
+  return (m[2] ? "Attachment " + m[2] + ", paragraph " : (m[1] === "APG" ? "APG 210, paragraph " : "APS 210, paragraph ")) + m[3];
+}
+const navLabel = e => e.kind === "table" ? e.label + " " + e.text : e.label.replace(/[.)]$/, "") + "  " + e.text;
+
+// Coverage per part (attachment or chapter) of each document.
+function parts(doc) {
+  const out = [];
+  for (const sec of doc.sections) {
+    let p = out.find(x => x.part === sec.part);
+    if (!p) out.push(p = { part: sec.part, cited: 0, total: 0, first: null, firstGap: null });
+    for (const e of sec.entries.filter(e => e.kind === "para")) {
+      p.total++; if (e.sites.length) p.cited++;
+      p.first = p.first || e.key;
+      if (!e.sites.length) p.firstGap = p.firstGap || e.key;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- shell
+const version = D.meta.rev.replace(/-dirty$/, "");
+document.getElementById("version").textContent = "Specification " + version + (D.meta.rev.endsWith("-dirty") ? " (draft)" : "");
+document.getElementById("version").title = D.meta.rev.endsWith("-dirty") ? "Built from a working copy with uncommitted changes" : "Built from commit " + version;
+const themeBtn = document.getElementById("theme");
+function applyTheme() { document.documentElement.dataset.theme = state.theme; themeBtn.textContent = state.theme === "dark" ? "Light mode" : "Dark mode"; }
+themeBtn.addEventListener("click", () => { state.theme = state.theme === "dark" ? "light" : "dark"; save(); applyTheme(); });
+applyTheme();
 
 function route() {
   const hsh = decodeURIComponent(location.hash.slice(1));
-  let view = "clauses", key = null;
-  if (hsh.startsWith("c/")) key = hsh.slice(2);
-  else if (hsh === "specs" || hsh === "checks") view = hsh;
+  let view = "overview", key = null;
+  if (hsh.startsWith("browse")) { view = "browse"; key = hsh.slice(7) || null; }
+  else if (hsh.startsWith("c/")) { view = "browse"; key = hsh.slice(2); }
+  else if (hsh === "engineering") view = "engineering";
+  if (state.q && view === "overview") view = "browse";
   document.querySelectorAll("nav.tabs a").forEach(a => a.dataset.view === view ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
-  app.replaceChildren(view === "specs" ? specsView() : view === "checks" ? checksView() : clausesView(key));
-  if (view === "clauses") { const cur = app.querySelector('.toc a[aria-current="true"]'); if (cur) cur.scrollIntoView({ block: "nearest" }); }
+  app.replaceChildren(view === "engineering" ? engineering() : view === "browse" ? browse(key) : overview());
+  if (view === "browse") { const cur = app.querySelector('.toc a[aria-current="true"]'); if (cur) cur.scrollIntoView({ block: "nearest" }); }
+  else window.scrollTo(0, 0);
 }
 
-// ---------------------------------------------------------------- clauses
-function clausesView(key) {
-  let hit = key && byKey.get(key);
-  if (hit && byKey.get(paraOf(key))) hit = byKey.get(paraOf(key));
+// ---------------------------------------------------------------- overview
+function overview() {
+  const aps = D.docs.find(d => d.name === "APS 210"), apg = D.docs.find(d => d.name === "APG 210");
+  const apsParts = parts(aps);
+  const calc = apsParts.filter(p => attachment(p.part));
+  const body = apsParts.filter(p => !attachment(p.part));
+  const bodyTotal = body.reduce((n, p) => n + p.total, 0), bodyCited = body.reduce((n, p) => n + p.cited, 0);
+  const calcCited = calc.reduce((n, p) => n + p.cited, 0), calcTotal = calc.reduce((n, p) => n + p.total, 0);
+
+  // The ARF returns each attachment is reported on (ARS 210.0).
+  const RETURNS = { A: ["210.1A", "210.1B"], B: ["210.2"], C: ["210.6"] };
+  const formLines = code => (D.forms.find(f => f.code === code) || {}).items || 0;
+  const partCard = p => {
+    const att = partName(p.part).slice(-1);
+    const rets = (RETURNS[att] || []).filter(formLines);
+    const lines = rets.reduce((n, c) => n + formLines(c), 0);
+    return h("a", { class: "card", href: href(p.firstGap && !p.cited ? p.firstGap : p.first) },
+      h("span", { class: "eyebrow" }, partName(p.part)),
+      h("h2", {}, partTopic(p.part)),
+      h("div", { style: "display:flex;align-items:baseline;gap:10px" }, h("span", { class: "big" }, pct(p.cited, p.total) + "%"), h("span", { class: "small" }, "of paragraphs cited")),
+      h("div", { class: "bar" }, h("div", { style: "width:" + pct(p.cited, p.total) + "%" })),
+      h("span", { class: "small" }, p.cited + " of " + p.total + " paragraphs are cited by the calculation engine."),
+      rets.length ? h("span", { class: "small", style: "color:var(--ink-2)" }, "Return " + rets.map(c => "ARF " + c).join(" and ") + ": " + lines + " report lines built" + (p.cited ? "." : ", from the reporting instructions (ARS 210.0). Its rules don't cite this attachment yet.")) : null);
+  };
+
+  // Theorems: one row per statement, listing the forms it holds for.
+  const thm = [...groupBy(D.theorems, t => t.name + "|" + t.statement)].map(([, ts]) => ts);
+  const proofs = h("div", { class: "list" }, thm.map(ts => {
+    const t = ts[0];
+    const lean = t.prover === "Lean";
+    return h("div", {},
+      h("span", { style: "color:var(--ok-ink);margin-top:2px" }, icon("shield")),
+      h("div", { class: "main" },
+        h("span", { class: "title" }, t.statement || words(t.name)),
+        !t.statement && t.note ? h("span", { style: "color:var(--ink-2)" }, t.note) : null,
+        h("span", { class: "small" }, [...new Set(ts.map(x => /^ARF /.test(x.owner) ? x.owner.split(" ").slice(0, 2).join(" ") : words(x.owner)))].join(", "))),
+      h("span", { class: "badge ok", title: lean ? "A machine-checked mathematical proof in Lean, over every possible input" : "Proven by the Z3 solver for every possible return, on every build" },
+        lean ? "Proven in Lean" : "Proven for every return"));
+  }));
+
+  // Largest gaps: headings within the calculation attachments with the most uncited paragraphs.
+  const gaps = [];
+  for (const sec of aps.sections.filter(s => attachment(s.part))) {
+    for (const [head, es] of groupBy(sec.entries.filter(e => e.kind === "para"), e => e.heading || sec.title || "Opening paragraphs")) {
+      const un = es.filter(e => !e.sites.length);
+      if (un.length) gaps.push({ part: sec.part, head, un, total: es.length });
+    }
+  }
+  gaps.sort((a, b) => b.un.length - a.un.length || a.part.localeCompare(b.part));
+  const gapList = h("div", { class: "list" }, gaps.slice(0, 8).map(g => h("a", { href: href(g.un[0].key) },
+    h("span", { style: "color:var(--warn-dot);margin-top:2px" }, icon("alert")),
+    h("span", { class: "main" }, h("span", { class: "title" }, g.head), h("span", { class: "small" }, partName(g.part) + " · " + partTopic(g.part))),
+    h("span", { class: "badge warn" }, g.un.length + " of " + plural(g.total, "paragraph") + " open"))));
+
+  const ok = !problems.length && !D.failures.length;
+  return h("div", { class: "page" },
+    h("div", {},
+      h("h1", {}, "How APS 210 is implemented"),
+      h("p", { class: "lede" }, "Every rule in the liquidity calculation engine cites the paragraph of APS 210 or APG 210 it implements. This page shows which parts of the standard are covered, what is mathematically proven to hold for every return, and where work remains.")),
+
+    h("section", {},
+      h("div", { class: "section-head" },
+        h("h2", {}, "Calculation requirements"),
+        h("span", { class: "small" }, calcCited + " of " + calcTotal + " paragraphs in Attachments A–C are implemented (" + pct(calcCited, calcTotal) + "%). Select one to browse it.")),
+      h("div", { class: "grid3" }, calc.map(partCard)),
+      h("div", { class: "card muted-card", style: "margin-top:16px;display:flex;flex-direction:column;gap:4px" },
+        h("span", { class: "eyebrow" }, "Main body of APS 210"),
+        h("span", {}, "Governance, risk management, funding strategy and contingency planning: " + bodyTotal + " paragraphs. These are requirements on how the ADI is run rather than on what it reports, so they sit outside the calculation engine" + (bodyCited ? " (" + bodyCited + " cited)." : "."))),
+      apg ? h("div", { class: "small", style: "margin-top:12px" }, "Guidance: " + apg.cited + " of " + apg.total + " APG 210 paragraphs are cited, mostly in Chapter 2 (LCR). ", h("a", { href: "#browse", onclick: () => { state.doc = D.docs.indexOf(apg); save(); } }, "Browse APG 210")) : null),
+
+    h("section", {},
+      h("div", { class: "section-head" },
+        h("h2", {}, "Proven guarantees"),
+        h("span", { class: "small" }, "Properties checked mathematically on every build, for every possible input, not only for test data.")),
+      proofs),
+
+    h("section", {},
+      h("div", { class: "section-head" },
+        h("h2", {}, "Largest open areas"),
+        h("span", { class: "small" }, "Topics in Attachments A–C with paragraphs that nothing in the engine cites yet.")),
+      gaps.length ? gapList : h("div", { class: "health ok" }, icon("check"), "Every paragraph in Attachments A–C is cited.")),
+
+    h("section", {},
+      h("div", { class: "health " + (ok ? "ok" : "bad") }, icon(ok ? "check" : "alert"),
+        h("span", {}, ok
+          ? "All " + D.sites.length + " citations in the specifications point to paragraphs that exist in the current standard."
+          : plural(problems.length, "citation") + " point to paragraphs that don't exist" + (D.failures.length ? ", and " + plural(D.failures.length, "specification") + " could not be read" : "") + ". ",
+          ok ? null : h("a", { href: "#engineering" }, "See details")))));
+}
+
+// ---------------------------------------------------------------- browse
+function browse(key) {
+  let hit = key && (byKey.get(key) || byKey.get(tableKey(key)));
+  if (hit && hit.e.kind === "sub") hit = byKey.get(paraOf(hit.e.key)) || hit;
   if (hit) { state.doc = hit.di; save(); }
   const doc = D.docs[state.doc] || D.docs[0];
   if (!hit) {
-    const first = doc.sections.flatMap(s => s.entries).find(e => e.kind !== "sub" && (!state.gapsOnly || !e.sites.length));
+    const first = doc.sections.flatMap(s => s.entries).find(e => e.kind !== "sub" && (!state.gapsOnly || !e.sites.length) && matches(e));
     hit = first && byKey.get(first.key);
   }
-  return h("div", { class: "layout" }, navPane(doc, hit && hit.e.key), clausePane(hit), citedPane(hit));
+  return h("div", { class: "layout" }, navPane(doc, hit && hit.e.key), clausePane(hit), usesPane(hit));
+}
+
+function matches(e) {
+  const q = state.q.trim().toLowerCase();
+  if (!q) return true;
+  const hit = byKey.get(e.key);
+  const subs = hit ? hit.sec.entries.filter(x => x.kind === "sub" && paraOf(x.key) === e.key).map(x => x.text).join(" ") : "";
+  const uses = e.sites.map(i => short(D.sites[i])).join(" ");
+  return (clauseTitle(e) + " " + e.key + " " + e.text + " " + e.heading + " " + subs + " " + uses).toLowerCase().includes(q);
 }
 
 function navPane(doc, current) {
-  const docs = D.docs.map((d, i) => h("button", { class: "doc", "aria-pressed": String(i === state.doc), onclick: () => { state.doc = i; save(); location.hash = "clauses"; route(); } },
-    h("span", { class: "row" }, h("span", {}, d.name), h("span", { class: "mono" }, pct(d))),
-    h("span", { class: "bar" }, h("div", { style: "width:" + pct(d) })),
-    h("span", { class: "small" }, d.cited + " of " + d.total + " paragraphs cited")));
-  const q = state.q.toLowerCase();
-  const toc = h("div", { class: "toc", role: "list" });
-  let lastPart = null;
-  for (const s of doc.sections) {
-    const rows = s.entries.filter(e => e.kind !== "sub")
-      .filter(e => !state.gapsOnly || (e.kind === "para" && !e.sites.length))
-      .filter(e => !q || (e.key + " " + e.text + " " + subsText(s, e)).toLowerCase().includes(q));
-    if (!rows.length) continue;
-    if (s.part !== lastPart) { toc.append(h("div", { class: "part" }, s.part)); lastPart = s.part; }
-    if (s.title) toc.append(h("div", { class: "sec" }, s.title));
-    for (const e of rows) {
+  const toc = h("div", { class: "toc" });
+  let lastPart = null, lastHead = null;
+  for (const sec of doc.sections) {
+    for (const e of sec.entries) {
+      if (e.kind === "sub") continue;
+      if (state.gapsOnly && (e.kind !== "para" || e.sites.length)) continue;
+      if (!matches(e)) continue;
+      if (sec.part !== lastPart) { toc.append(h("div", { class: "part" }, sec.part.replace(/ +[-–] +/, " · "))); lastPart = sec.part; lastHead = null; }
+      const head = e.heading || sec.title;
+      if (head && head !== lastHead) { toc.append(h("div", { class: "head" }, head)); }
+      lastHead = head;
       const gap = e.kind === "para" && !e.sites.length;
-      toc.append(h("a", { href: href(e.key), class: gap ? "gap" : null, "aria-current": String(e.key === current), role: "listitem" },
+      toc.append(h("a", { href: href(e.key), class: gap ? "gap" : null, "aria-current": String(e.key === current), title: e.text },
         h("span", { class: "dot" + (gap ? " gap" : "") }),
-        h("span", { class: "t" }, e.label + " " + e.text),
-        h("span", { class: "n" }, gap ? "—" : e.sites.length)));
+        h("span", { class: "t" }, navLabel(e)),
+        h("span", { class: "n" }, gap ? "open" : e.sites.length)));
     }
   }
-  if (!toc.children.length) toc.append(h("div", { class: "small" }, "Nothing matches."));
-  return h("aside", { class: "nav", "aria-label": "Documents" },
-    h("div", { class: "label" }, "Sources"), ...docs,
-    h("label", { class: "filter" }, h("input", { type: "checkbox", checked: state.gapsOnly, onchange: ev => { state.gapsOnly = ev.target.checked; save(); route(); } }), "Uncited paragraphs only"),
+  if (!toc.children.length) toc.append(h("div", { class: "small" }, state.q ? "Nothing matches “" + state.q + "”." : "Nothing to show."));
+  return h("aside", { class: "nav", "aria-label": "Contents" },
+    h("div", { class: "docs", role: "group", "aria-label": "Document" }, D.docs.map((d, i) =>
+      h("button", { type: "button", "aria-pressed": String(i === state.doc), onclick: () => { state.doc = i; save(); location.hash = "browse"; route(); } }, d.name))),
+    h("label", { class: "filter" }, h("input", { type: "checkbox", checked: state.gapsOnly, onchange: ev => { state.gapsOnly = ev.target.checked; save(); route(); } }), "Show open paragraphs only"),
+    h("div", { class: "legend" }, h("span", {}, h("span", { class: "dot" }), "implemented"), h("span", {}, h("span", { class: "dot gap" }), "open")),
     toc);
 }
-const pct = d => (d.total ? Math.round(100 * d.cited / d.total) : 0) + "%";
-const subsText = (s, e) => s.entries.filter(x => x.kind === "sub" && paraOf(x.key) === e.key).map(x => x.text).join(" ");
 
 function clausePane(hit) {
-  if (!hit) return h("main", {}, h("div", { class: "empty" }, "No paragraph selected."));
-  const { e, s, d } = hit;
-  const subs = s.entries.filter(x => x.kind === "sub" && paraOf(x.key) === e.key);
-  const title = e.kind === "table" ? short(e.key) + ": " + e.text : short(e.key).replace(/ para /, ", paragraph ");
-  const text = h("div", { class: "text" },
-    e.kind === "table" ? h("p", {}, "Table " + e.label.replace("Table ", "") + " – " + e.text) : h("p", {}, e.label + " " + e.text),
-    subs.map(x => h("p", { class: "sub" + (x.direct.length ? " hit" : ""), id: "s-" + x.label },
-      h("b", {}, x.label), " ", x.text,
-      x.direct.length ? h("span", { class: "who" }, "← " + [...new Set(x.direct.map(i => siteName(D.sites[i])))].join(", ")) : null)));
-  const all = s.entries.filter(x => x.kind !== "sub");
-  const sameDoc = d.sections.flatMap(sec => sec.entries.filter(x => x.kind !== "sub"));
-  const at = sameDoc.findIndex(x => x.key === e.key);
-  const prev = sameDoc[at - 1], next = sameDoc[at + 1];
-  const directOnSubs = subs.filter(x => x.direct.length).length;
-  return h("main", {},
-    h("div", { class: "crumbs" }, d.name + " › " + s.part + (s.title ? " › " + s.title : "")),
-    h("h1", {}, title),
+  if (!hit) return h("main", { class: "clause" }, h("div", { class: "note" }, "Nothing matches. Clear the search to see the whole standard."));
+  const { e, sec, d } = hit;
+  const subs = sec.entries.filter(x => x.kind === "sub" && paraOf(x.key) === e.key);
+  const usesOf = idx => [...new Set(idx.map(i => short(D.sites[i])))];
+  const text = e.kind === "table"
+    ? [h("p", {}, h("b", {}, e.label), " – " + e.text), h("p", { class: "small", style: "font-family:var(--sans)" }, "The table's rows are in the standard; open it on apra.gov.au to see them.")]
+    : [h("p", {}, e.label + " " + e.text),
+       subs.map(x => h("p", { class: "sub" + (x.direct.length ? " hit" : "") },
+         h("b", {}, x.label), " ", x.text, " ",
+         x.direct.length ? h("span", { class: "who" }, "← " + usesOf(x.direct).slice(0, 3).join("; ") + (usesOf(x.direct).length > 3 ? " …" : "")) : null))];
+
+  // Neighbouring open paragraphs under the same heading.
+  const siblings = sec.entries.filter(x => x.kind === "para" && x.key !== e.key && (x.heading || "") === (e.heading || ""));
+  const open = siblings.filter(x => !x.sites.length).slice(0, 3);
+  const all = d.sections.flatMap(s => s.entries.filter(x => x.kind !== "sub"));
+  const at = all.findIndex(x => x.key === e.key);
+  const prev = all[at - 1], next = all[at + 1];
+  const proofs = e.sites.filter(i => D.sites[i].kind === "theorem").length;
+  const direct = subs.filter(x => x.direct.length).length;
+
+  return h("main", { class: "clause" },
+    h("div", { class: "crumbs" }, [d.name, sec.part.replace(/ +[-–] +/, " · "), e.heading || sec.title].filter(Boolean).join(" › ")),
+    h("h1", {}, clauseTitle(e)),
     h("div", { class: "chips" },
-      e.sites.length ? h("span", { class: "chip" }, "cited by " + e.sites.length) : h("span", { class: "chip warn" }, "uncited"),
-      subs.length ? h("span", { class: "chip plain" }, directOnSubs + " of " + subs.length + " sub-paragraphs cited directly") : null),
-    h("section", { class: "card", "aria-label": "Source text" },
-      h("div", { class: "small", style: "display:flex;justify-content:space-between;gap:12px;margin-bottom:12px" },
-        h("span", {}, "Source text · " + d.name),
-        d.url ? h("a", { href: d.url + "#" + e.html_id, target: "_blank", rel: "noopener" }, "open on apra.gov.au") : null),
+      e.sites.length ? h("span", { class: "badge accent" }, "Used in " + plural(e.sites.length, "place")) : h("span", { class: "badge warn" }, "Not yet implemented"),
+      proofs ? h("span", { class: "badge ok" }, plural(proofs, "proven guarantee")) : null,
+      subs.length ? h("span", { class: "badge plain" }, direct + " of " + plural(subs.length, "sub-paragraph") + " cited directly") : null),
+    h("section", { class: "source", "aria-label": "Text of the standard" },
+      h("div", { class: "top" }, h("span", {}, d.name + " (July 2025)"), d.url ? h("a", { href: d.url + "#" + e.html_id, target: "_blank", rel: "noopener" }, "Open on apra.gov.au") : null),
       text),
-    !e.sites.length && e.kind === "para" ? h("div", { class: "empty" }, "No rule, form cell, check or theorem cites this paragraph. Implement it, or record why it doesn't apply.") : null,
+    !e.sites.length && e.kind === "para" ? h("div", { class: "note" }, "Nothing in the calculation engine cites this paragraph yet. Either it still needs implementing, or it doesn't affect the reported numbers and should be marked as such.") : null,
+    open.length ? h("section", { style: "display:flex;flex-direction:column;gap:10px" },
+      h("h2", {}, "Open paragraphs nearby"),
+      h("div", { class: "gaps" }, open.map(x => h("a", { href: href(x.key) },
+        h("span", { class: "g" }, clauseTitle(x).replace(/^Attachment [A-Z], /, "").replace(/^paragraph/, "Paragraph"), " ", h("span", {}, "· open")),
+        h("span", { class: "x" }, x.text))))) : null,
     h("div", { class: "pager" },
-      prev ? h("a", { href: href(prev.key) }, "← " + short(prev.key)) : h("span"),
-      next ? h("a", { href: href(next.key) }, short(next.key) + " →") : h("span")));
+      prev ? h("a", { href: href(prev.key) }, "← " + clauseTitle(prev)) : h("span"),
+      next ? h("a", { href: href(next.key) }, clauseTitle(next) + " →") : h("span")));
 }
 
-const siteName = s => s.context.replace(/^[A-Za-z]+ · /, "");
-const KIND_ORDER = ["rule", "param", "field", "type", "form item", "check", "invariant", "theorem", "form", "module"];
-const KIND_TITLE = { "rule": "Rules", "param": "Parameters", "field": "Data fields", "type": "Types", "form item": "Form cells", "check": "Checks", "invariant": "Invariants", "theorem": "Theorems", "form": "Forms", "module": "Modules" };
+const GROUPS = [
+  ["rule", "Calculation rules"], ["param", "Settings"], ["field", "Data inputs"], ["type", "Data types"],
+  ["form item", "Report lines"], ["check", "Validation checks"], ["theorem", "Proven guarantees"], ["invariant", "Proven guarantees"],
+  ["form", "Reports"], ["module", "Modules"]
+];
 
-function siteCard(i, opts) {
-  const s = D.sites[i];
-  const fs = findings.get(i) || [];
-  return h("div", { class: "site" },
-    h("div", { class: "ctx" }, s.context),
-    h("div", { class: "src" }, s.source),
-    h("div", { class: "loc" }, s.file + ":" + s.line),
-    opts && opts.parts ? h("div", { class: "chips" }, s.parts.flatMap(p => p.note ? [h("span", { class: "chip plain", title: "note, not a reference" }, p.note)]
-      : p.refs.map(r => r.replace(/ footnote \d+$/, "")).map(r => byKey.has(r) || byKey.has(paraOf(r)) ? h("a", { class: "chip", href: href(r) }, short(r))
-        : r.startsWith("ARS") ? h("span", { class: "chip plain" }, r)
-        : h("span", { class: "chip bad", title: "not in the document" }, short(r))))) : null,
-    fs.filter(f => f.kind !== "note").map(f => h("div", { class: "small", style: "color:var(--bad-ink)" }, f.kind + ": " + f.detail)));
+// One card per distinct description; `idx` are the citations behind it.
+function useCard(idx) {
+  const d = describe(D.sites[idx[0]]);
+  return h("div", { class: "use" },
+    h("span", { class: "ut" }, d.title, idx.length > 1 ? h("span", { class: "us", style: "font-weight:500" }, "  · " + idx.length + " places") : null),
+    h("span", { class: "us" }, d.sub),
+    h("details", {}, h("summary", {}, "Show specification source"),
+      idx.map(i => [h("pre", {}, D.sites[i].source),
+        h("div", { class: "mono", style: "color:var(--muted);margin-top:6px" }, D.sites[i].file + ", line " + D.sites[i].line)])));
 }
+const cards = idx => [...groupBy(idx, i => { const d = describe(D.sites[i]); return d.title + "|" + d.sub; }).values()];
 
-function citedPane(hit) {
-  const box = h("aside", { class: "cited", "aria-label": "Cited by" }, h("h2", {}, "Cited by"));
-  if (!hit || !hit.e.sites.length) { box.append(h("div", { class: "small" }, "Nothing in the specs.")); return box; }
-  const groups = new Map();
-  for (const i of hit.e.sites) { const k = D.sites[i].kind; (groups.get(k) || groups.set(k, []).get(k)).push(i); }
-  for (const k of KIND_ORDER.filter(k => groups.has(k))) {
-    box.append(h("div", { class: "label" }, KIND_TITLE[k] + " (" + groups.get(k).length + ")"), ...groups.get(k).map(i => siteCard(i)));
+function usesPane(hit) {
+  const box = h("aside", { class: "uses", "aria-label": "Where it is used" }, h("h2", {}, "Where it's used"));
+  if (!hit || !hit.e.sites.length) { box.append(h("p", { class: "small" }, "Nothing in the specifications cites this yet.")); return box; }
+  const byKind = groupBy(hit.e.sites, i => D.sites[i].kind);
+  const done = new Set();
+  for (const [kind, title] of GROUPS) {
+    if (done.has(title)) continue;
+    const idx = GROUPS.filter(g => g[1] === title).flatMap(g => byKind.get(g[0]) || []);
+    if (!idx.length) continue;
+    done.add(title);
+    const group = h("div", { style: "display:flex;flex-direction:column;gap:8px" }, h("div", { class: "label" }, title + " (" + idx.length + ")"));
+    if (kind === "form item" && idx.length > 4) {
+      const forms = [...groupBy(idx, i => owner(D.sites[i]))].map(([f, xs]) => f + " (" + xs.length + ")").join(", ");
+      group.append(h("p", { class: "small" }, "On " + forms + "."));
+    }
+    const LIMIT = 4, cs = cards(idx);
+    group.append(...cs.slice(0, LIMIT).map(useCard));
+    if (cs.length > LIMIT) {
+      const rest = h("div", { style: "display:none;flex-direction:column;gap:8px" }, cs.slice(LIMIT).map(useCard));
+      const btn = h("button", { class: "more", type: "button", onclick: () => { rest.style.display = "flex"; btn.remove(); } }, "Show " + (cs.length - LIMIT) + " more");
+      group.append(rest, btn);
+    }
+    box.append(group);
   }
   return box;
 }
 
-// ---------------------------------------------------------------- specs
-function specsView() {
-  const q = state.q.toLowerCase();
-  const byFile = new Map();
-  D.sites.forEach((s, i) => {
-    if (q && !(s.context + " " + s.text + " " + s.source + " " + s.file).toLowerCase().includes(q)) return;
-    (byFile.get(s.file) || byFile.set(s.file, []).get(s.file)).push(i);
-  });
-  const files = [...byFile.keys()];
-  return h("div", { class: "layout" }, h("div", { class: "full" },
-    h("h1", {}, "Citations by spec"),
-    h("div", { class: "small" }, "Every @cite in specs/, in file order. Chips link to the clause; red ones name a paragraph the document doesn't have."),
-    D.failures.length ? h("div", { class: "empty" }, "Not parsed (citations missing): " + D.failures.map(f => f.file).join(", ")) : null,
-    files.map(f => h("section", { style: "display:flex;flex-direction:column;gap:8px" },
-      h("h2", { class: "mono" }, f + " (" + byFile.get(f).length + ")"),
-      h("div", { style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px" }, byFile.get(f).map(i => siteCard(i, { parts: true })))))));
-}
-
-// ---------------------------------------------------------------- checks
-function checksView() {
+// ---------------------------------------------------------------- engineering
+function engineering() {
   const by = k => D.findings.filter(f => f.kind === k);
   const dangling = by("dangling"), items = by("unknown-item"), notes = by("note");
-  const noteCount = new Map();
-  notes.forEach(f => { const k = f.detail.replace(/[\d.,\s]+/g, " ").replace(/\s+/g, " ").trim(); noteCount.set(k, (noteCount.get(k) || 0) + 1); });
   const table = (rows, cols) => h("div", { class: "scroll" }, h("table", {}, h("thead", {}, h("tr", {}, cols.map(c => h("th", {}, c)))), h("tbody", {}, rows)));
-  const findingRow = f => { const s = D.sites[f.site]; return h("tr", {}, h("td", { class: "mono" }, f.detail), h("td", {}, s.context), h("td", { class: "mono" }, s.file + ":" + s.line)); };
-  return h("div", { class: "layout" }, h("div", { class: "full" },
-    h("h1", {}, "Checks"),
-    h("div", { class: "stats" },
-      D.docs.map(d => h("div", { class: "stat" }, h("span", { class: "small" }, d.name + " coverage"), h("b", {}, pct(d)), h("span", { class: "small" }, d.cited + " / " + d.total + " paragraphs"))),
-      h("div", { class: "stat" }, h("span", { class: "small" }, "Dangling citations"), h("b", { style: dangling.length ? "color:var(--bad-ink)" : "" }, dangling.length), h("span", { class: "small" }, "paragraph not in the document")),
-      h("div", { class: "stat" }, h("span", { class: "small" }, "Unknown ARS items"), h("b", { style: items.length ? "color:var(--bad-ink)" : "" }, items.length), h("span", { class: "small" }, "no form has the item")),
-      h("div", { class: "stat" }, h("span", { class: "small" }, "Notes written as @cite"), h("b", {}, notes.length), h("span", { class: "small" }, "not references"))),
-    D.failures.length ? [h("h2", {}, "Specs that didn't parse"), table(D.failures.map(f => h("tr", {}, h("td", { class: "mono" }, f.file), h("td", {}, f.error))), ["File", "Error"])] : null,
-    h("h2", {}, "Dangling citations"), dangling.length ? table(dangling.map(findingRow), ["Citation", "Where", "Spec"]) : h("div", { class: "small" }, "None."),
-    h("h2", {}, "Unknown ARS items"), items.length ? table(items.map(findingRow), ["Citation", "Where", "Spec"]) : h("div", { class: "small" }, "None."),
-    h("h2", {}, "Notes written as @cite"),
-    h("div", { class: "small" }, "Text in @cite that isn't a reference. Candidates for a separate @note."),
-    table([...noteCount].sort((a, b) => b[1] - a[1]).map(([k, n]) => h("tr", {}, h("td", {}, k), h("td", { class: "mono" }, n))), ["Note (numbers stripped)", "Count"]),
-    h("h2", {}, "ARS 210.0 references"),
-    h("div", { class: "small" }, "Cited by page or item. Not checked against the PDF: page numbers may be printed pages, not PDF pages."),
-    table(D.ars.map(a => h("tr", {}, h("td", { class: "mono" }, a.key), h("td", { class: "mono" }, a.sites.length))), ["Reference", "Citations"])));
+  const findingRow = f => { const s = D.sites[f.site]; return h("tr", {}, h("td", { class: "mono" }, f.detail), h("td", {}, describe(s).title), h("td", { class: "mono" }, s.file + ":" + s.line)); };
+  const noteCount = [...groupBy(notes, f => f.detail.replace(/[\d.,]+/g, "#").replace(/\s+/g, " ").trim())].map(([k, v]) => [k, v.length]).sort((a, b) => b[1] - a[1]);
+  const q = state.q.trim().toLowerCase();
+  const files = [...groupBy(D.sites.map((s, i) => i).filter(i => !q || (D.sites[i].title + " " + D.sites[i].detail + " " + D.sites[i].text + " " + D.sites[i].source).toLowerCase().includes(q)), i => D.sites[i].file)];
+  return h("div", { class: "page" },
+    h("div", {}, h("h1", {}, "Engineering"), h("p", { class: "lede" }, "Checks on the citations themselves, and every citation by specification file. Regenerate with cargo run -p trace.")),
+    h("section", {},
+      h("div", { class: "section-head" }, h("h2", {}, "Citation checks")),
+      h("div", { class: "grid3" },
+        h("div", { class: "card" }, h("span", { class: "eyebrow" }, "Citations read"), h("div", { class: "big", style: "margin:8px 0" }, D.sites.length), h("span", { class: "small" }, "from " + plural(new Set(D.sites.map(s => s.file)).size, "specification file"))),
+        h("div", { class: "card" }, h("span", { class: "eyebrow" }, "Pointing at missing paragraphs"), h("div", { class: "big", style: "margin:8px 0;" + (dangling.length ? "color:var(--bad-ink)" : "") }, dangling.length), h("span", { class: "small" }, "paragraph or table not in the standard")),
+        h("div", { class: "card" }, h("span", { class: "eyebrow" }, "Unknown report lines"), h("div", { class: "big", style: "margin:8px 0;" + (items.length ? "color:var(--bad-ink)" : "") }, items.length), h("span", { class: "small" }, "ARS item that no form defines")))),
+    D.failures.length ? h("section", {}, h("div", { class: "section-head" }, h("h2", {}, "Specifications that could not be read")), table(D.failures.map(f => h("tr", {}, h("td", { class: "mono" }, f.file), h("td", {}, f.error))), ["File", "Error"])) : null,
+    dangling.length ? h("section", {}, h("div", { class: "section-head" }, h("h2", {}, "Missing paragraphs")), table(dangling.map(findingRow), ["Citation", "Where", "Spec"])) : null,
+    items.length ? h("section", {}, h("div", { class: "section-head" }, h("h2", {}, "Unknown report lines")), table(items.map(findingRow), ["Citation", "Where", "Spec"])) : null,
+    h("section", {},
+      h("div", { class: "section-head" }, h("h2", {}, "Notes inside citations"), h("span", { class: "small" }, "Text in @cite that is not a reference (numbers replaced by #). Candidates for a separate @note annotation.")),
+      table(noteCount.map(([k, n]) => h("tr", {}, h("td", {}, k), h("td", { class: "mono" }, n))), ["Note", "Count"])),
+    h("section", {},
+      h("div", { class: "section-head" }, h("h2", {}, "ARS 210.0 references"), h("span", { class: "small" }, "Cited by page or item; not checked against the PDF. Page numbers may be printed pages rather than PDF pages.")),
+      table(D.ars.map(a => h("tr", {}, h("td", { class: "mono" }, a.key), h("td", { class: "mono" }, a.sites.length))), ["Reference", "Citations"])),
+    h("section", { style: "display:flex;flex-direction:column;gap:10px" },
+      h("div", { class: "section-head" }, h("h2", {}, "Citations by specification")),
+      files.map(([f, idx]) => h("details", { class: "file" }, h("summary", {}, h("span", { class: "mono", style: "font-size:13px" }, f), " · " + idx.length),
+        h("div", { class: "uses-grid" }, idx.map(i => {
+          const s = D.sites[i];
+          return h("div", { class: "use" }, h("span", { class: "ut" }, describe(s).title), h("span", { class: "us" }, describe(s).sub),
+            h("div", { class: "chips", style: "margin-top:4px" }, s.parts.flatMap(p => p.note ? [h("span", { class: "badge plain" }, p.note)]
+              : p.refs.map(r => { const k = tableKey(r); return byKey.has(k) || byKey.has(paraOf(k)) ? h("a", { class: "badge accent", href: href(k), style: "text-decoration:none" }, r.replace(/^APS 210 /, "")) : r.startsWith("ARS") ? h("span", { class: "badge plain" }, r) : h("span", { class: "badge bad" }, r); }))),
+            (findings.get(i) || []).filter(f => f.kind !== "note").map(f => h("span", { class: "small", style: "color:var(--bad-ink)" }, f.detail + ": not in the standard")),
+            h("details", {}, h("summary", {}, "Source"), h("pre", {}, s.source), h("div", { class: "mono", style: "color:var(--muted);margin-top:6px" }, "line " + s.line)));
+        }))))));
 }
 
 const qInput = document.getElementById("q");

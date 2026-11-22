@@ -8,14 +8,14 @@ use prudence_core::Q;
 use prudence_core::date::days_from_civil;
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::syntax::ast::Module;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::load_module_json;
 use prudence_core::uncertain::{Mode, Uncertain};
 
-pub const SOURCE: &str = include_str!("../../../specs/funding/funding.prd");
+pub const SOURCE: &str = include_str!("../../../specs/ir/modules/funding.json");
 
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
-    M.get_or_init(|| parse_module(SOURCE, &[]).unwrap_or_else(|e| panic!("funding.prd:\n{}", e.join("\n"))))
+    M.get_or_init(|| load_module_json(SOURCE, &[]).unwrap_or_else(|e| panic!("funding.json:\n{}", e.join("\n"))))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,10 +185,4 @@ pub fn run(book: &Book, reporting_date: NaiveDate, mode: Mode) -> Result<Run, St
         push(&x.id, "ARF 210.2", s(it.call_fn("placement_mlh_row", vec![r])?)?, "amount".into(), &x.amount);
     }
     Ok(Run { cells, assumptions: it.assumptions() })
-}
-
-/// The Lean model generated from the spec, as written to
-/// lean/Prudence/Funding.lean.
-pub fn lean_source() -> Result<String, String> {
-    prudence_core::syntax::lean::generate(module(), &[])
 }

@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::ast::*;
 
-const BUILTIN_VALUES: [&str; 22] = [
-    "conservative", "known", "latest", "days", "bucket", "cycle", "add_months", "pow", "item", "min", "max", "sum", "all", "distinct", "events",
+const BUILTIN_VALUES: [&str; 23] = [
+    "cell", "conservative", "known", "latest", "days", "bucket", "cycle", "add_months", "pow", "item", "min", "max", "sum", "all", "distinct", "events",
     "slices", "solo", "true", "false", "none", "Conservative", "Optimistic",
 ];
 const BUILTIN_TYPES: [&str; 18] = [
@@ -177,7 +177,7 @@ impl Resolver {
     fn bound(&self, n: &str) -> bool {
         self.scopes.iter().any(|s| s.contains(n)) || self.values.contains(n)
     }
-    fn type_name(&mut self, n: &str, pos: super::lexer::Pos) {
+    fn type_name(&mut self, n: &str, pos: super::ast::Pos) {
         if !self.types.contains(n) {
             self.errors.push(format!("{pos}: unknown type `{n}`"));
         }
@@ -196,7 +196,7 @@ impl Resolver {
             }
         }
     }
-    fn pat(&mut self, p: &Pat, pos: Option<super::lexer::Pos>) {
+    fn pat(&mut self, p: &Pat, pos: Option<super::ast::Pos>) {
         match p {
             Pat::Ctor(name, ps) => {
                 // `Some(x)` destructures an optional value.

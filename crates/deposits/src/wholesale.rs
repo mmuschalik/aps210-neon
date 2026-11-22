@@ -9,14 +9,14 @@ use prudence_core::Q;
 use prudence_core::date::days_from_civil;
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::syntax::ast::Module;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::load_module_json;
 use prudence_core::uncertain::{Mode, Uncertain};
 
-pub const SOURCE: &str = include_str!("../../../specs/deposits/wholesale.prd");
+pub const SOURCE: &str = include_str!("../../../specs/ir/modules/wholesale.json");
 
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
-    M.get_or_init(|| parse_module(SOURCE, &crate::prudence::FORMS).unwrap_or_else(|e| panic!("wholesale.prd:\n{}", e.join("\n"))))
+    M.get_or_init(|| load_module_json(SOURCE, &crate::prudence::FORMS).unwrap_or_else(|e| panic!("wholesale.json:\n{}", e.join("\n"))))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,6 +124,12 @@ pub fn run_full(customers: &[Customer], deposits: &[Deposit], reporting_date: Na
                             Uncertain::Unknown(r) => unknown(r, &d.id, "operational_balance"),
                         },
                     ),
+                    (
+                        "maturity".into(),
+                        d.maturity
+                            .map(|m| Val::Date(days_from_civil(i64::from(m.year()), m.month(), m.day())))
+                            .unwrap_or(Val::None),
+                    ),
                 ],
             },
         );
@@ -153,10 +159,4 @@ pub fn run_full(customers: &[Customer], deposits: &[Deposit], reporting_date: Na
     }
     slices.sort();
     Ok(WRun { slices, allocations: out.allocations, assumptions: out.assumptions })
-}
-
-/// The Lean model generated from the spec, measured on ARF 210.1A and
-/// ARF 210.6, as written to lean/Prudence/Wholesale.lean.
-pub fn lean_source() -> Result<String, String> {
-    prudence_core::syntax::lean::generate(module(), &arf210::lean_targets()?)
 }

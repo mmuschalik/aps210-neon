@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::ast::*;
-use super::lexer::Pos;
+use super::ast::Pos;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Ty {
@@ -949,6 +949,14 @@ impl<'m> Checker<'m> {
                     self.expect(&Ty::Date, &t, first_pos(&a.value), "bucket(..)");
                 }
                 Ty::Str
+            }
+            // A cell of another return, bound by the runtime (syntax::deps):
+            // money in base units, of whatever basis the reader declares.
+            "cell" => {
+                if !matches!(args, [Arg { value: Expr::Str(..), .. }, Arg { value: Expr::Str(..), .. }]) {
+                    self.err(at, "cell(form, key) takes two string literals".into());
+                }
+                Ty::Money("AUD".into(), None)
             }
             "item" => {
                 args.iter().for_each(|a| {

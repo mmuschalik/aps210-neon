@@ -3,36 +3,145 @@
 
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::num::parse_decimal;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::ast::*;
+use prudence_core::syntax::validate_module;
 use prudence_core::uncertain::Mode;
 
-const SRC: &str = r#"
-module Knapsack {
-  data Owner {
-    items : List<Item>
-  }
-  data Item {
-    owner  : Owner
-    value  : Money<AUD, Carrying>
-    weight : Rate
-  }
-
-  // Two coupled budgets: not the "one budget plus bounds" shape.
-  alloc take : ConservationSplit(Item.value, per: owner) =
-    optimize per owner {
-      maximize sum(i in owner.items | take[i])
-      subject to
-        sum(i in owner.items | take[i]) <= 100.AUD
-        sum(i in owner.items | i.weight * take[i]) <= 20.AUD
-        forall i in owner.items, 0.AUD <= take[i] <= i.value
-    }
-
-  partition i: Item into Out splitting i.value by taken: take[i] {
-    case true =>
-      out: taken
-  }
+fn named(name: &str, generics: Vec<Type>, params: Vec<TypeParam>) -> Type {
+    Type::Named { name: name.into(), generics, params, pos: Pos::default() }
 }
-"#;
+
+fn id(s: &str) -> Expr {
+    Expr::Ident(s.into(), Pos::default())
+}
+
+fn aud(n: &str) -> Expr {
+    Expr::Member(Box::new(Expr::Num(n.into(), Pos::default())), "AUD".into())
+}
+
+fn knapsack_module(budget: &str) -> Module {
+    let take_i = || Expr::Index(Box::new(id("take")), Box::new(id("i")));
+    let owner_items = || Expr::Member(Box::new(id("owner")), "items".into());
+    let sum_comp = |body: Expr| {
+        Expr::Call(
+            Box::new(id("sum")),
+            vec![Arg {
+                name: None,
+                value: Expr::Comprehension {
+                    var: "i".into(),
+                    source: Box::new(owner_items()),
+                    filter: None,
+                    body: Some(Box::new(body)),
+                },
+            }],
+        )
+    };
+    let aud_ty = || named("Money", vec![named("AUD", vec![], vec![]), named("Carrying", vec![], vec![])], vec![]);
+    let budget_expr = if let Some(rest) = budget.strip_prefix('-') {
+        Expr::Unary(UnOp::Neg, Box::new(aud(rest)))
+    } else {
+        aud(budget)
+    };
+
+    Module {
+        name: "Knapsack".into(),
+        params: vec![],
+        anns: vec![],
+        decls: vec![
+            Decl {
+                name: "Owner".into(),
+                kind: DeclKind::Data {
+                    base: None,
+                    fields: vec![Field {
+                        name: "items".into(),
+                        ty: named("List", vec![named("Item", vec![], vec![])], vec![]),
+                        anns: vec![],
+                    }],
+                },
+                anns: vec![],
+                pos: Pos::default(),
+            },
+            Decl {
+                name: "Item".into(),
+                kind: DeclKind::Data {
+                    base: None,
+                    fields: vec![
+                        Field { name: "owner".into(), ty: named("Owner", vec![], vec![]), anns: vec![] },
+                        Field { name: "value".into(), ty: aud_ty(), anns: vec![] },
+                        Field { name: "weight".into(), ty: named("Rate", vec![], vec![]), anns: vec![] },
+                    ],
+                },
+                anns: vec![],
+                pos: Pos::default(),
+            },
+            Decl {
+                name: "take".into(),
+                kind: DeclKind::Alloc {
+                    ty: named(
+                        "ConservationSplit",
+                        vec![],
+                        vec![
+                            TypeParam::Expr(Expr::Member(Box::new(id("Item")), "value".into())),
+                            TypeParam::Field("per".into(), named("owner", vec![], vec![])),
+                        ],
+                    ),
+                    body: Expr::Optimize {
+                        per: "owner".into(),
+                        filter: None,
+                        sense: Sense::Maximize,
+                        objective: Box::new(sum_comp(take_i())),
+                        constraints: vec![
+                            Expr::Binary(BinOp::Le, Box::new(sum_comp(take_i())), Box::new(budget_expr)),
+                            Expr::Binary(
+                                BinOp::Le,
+                                Box::new(sum_comp(Expr::Binary(
+                                    BinOp::Mul,
+                                    Box::new(Expr::Member(Box::new(id("i")), "weight".into())),
+                                    Box::new(take_i()),
+                                ))),
+                                Box::new(aud("20")),
+                            ),
+                            Expr::Forall {
+                                var: "i".into(),
+                                domain: Domain::In(Box::new(owner_items())),
+                                body: Box::new(Expr::Binary(
+                                    BinOp::And,
+                                    Box::new(Expr::Binary(BinOp::Le, Box::new(aud("0")), Box::new(take_i()))),
+                                    Box::new(Expr::Binary(
+                                        BinOp::Le,
+                                        Box::new(take_i()),
+                                        Box::new(Expr::Member(Box::new(id("i")), "value".into())),
+                                    )),
+                                )),
+                            },
+                        ],
+                    },
+                },
+                anns: vec![],
+                pos: Pos::default(),
+            },
+            Decl {
+                name: "partition".into(),
+                kind: DeclKind::Partition {
+                    var: "i".into(),
+                    source: named("Item", vec![], vec![]),
+                    targets: vec!["Out".into()],
+                    split: Expr::Member(Box::new(id("i")), "value".into()),
+                    split_var: "taken".into(),
+                    split_by: take_i(),
+                    more_splits: vec![],
+                    cases: vec![Case {
+                        cond: id("true"),
+                        lets: vec![],
+                        outputs: vec![("out".into(), id("taken"))],
+                    }],
+                },
+                anns: vec![],
+                pos: Pos::default(),
+            },
+        ],
+    }
+}
 
 fn world(weight_a: &str) -> World {
     let mut w = World::default();
@@ -52,7 +161,7 @@ fn world(weight_a: &str) -> World {
 }
 
 fn run(w: &World) -> Result<Vec<(String, bool, i64)>, String> {
-    let m = parse_module(SRC, &["Out"]).map_err(|e| e.join("\n"))?;
+    let m = validate_module(knapsack_module("100"), &["Out"]).map_err(|e| e.join("\n"))?;
     let opts = Options { mode: Mode::Conservative, sense: None, params: vec![] };
     let out = Interp::new(&m, w, opts)?.run()?;
     Ok(out
@@ -64,9 +173,6 @@ fn run(w: &World) -> Result<Vec<(String, bool, i64)>, String> {
 
 #[test]
 fn coupled_budgets_with_ties_are_solved_exactly() {
-    // max a + b  s.t. a + b <= 100, 0.5a + 0.1b <= 20, 0 <= a, b <= 80.
-    // Optimum 100, attained for a in [20, 25]; ties break towards earlier
-    // subjects, so a = 25, b = 75.
     let slices = run(&world("0.5")).unwrap();
     assert_eq!(
         slices,
@@ -76,10 +182,7 @@ fn coupled_budgets_with_ties_are_solved_exactly() {
 
 #[test]
 fn infeasible_programs_are_reported() {
-    // Make the bound constraint impossible: value < 0 is not allowed, so
-    // force infeasibility with a negative budget instead.
-    let src = SRC.replace("<= 100.AUD", "<= -1.AUD");
-    let m = parse_module(&src, &["Out"]).unwrap();
+    let m = validate_module(knapsack_module("-1"), &["Out"]).unwrap();
     let w = world("0.5");
     let opts = Options { mode: Mode::Conservative, sense: None, params: vec![] };
     let err = Interp::new(&m, &w, opts).unwrap().run().unwrap_err();

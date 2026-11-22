@@ -2,6 +2,8 @@
 //! Prudence module specs/obligations/commitments.prd; this crate holds the data
 //! model, the loader, and `run()`, which fills the form's input items.
 
+pub mod lookback;
+
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
@@ -10,14 +12,14 @@ use prudence_core::Q;
 use prudence_core::date::days_from_civil;
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::syntax::ast::Module;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::load_module_json;
 use prudence_core::uncertain::{Mode, Uncertain};
 
-pub const SOURCE: &str = include_str!("../../../specs/obligations/commitments.prd");
+pub const SOURCE: &str = include_str!("../../../specs/ir/modules/commitments.json");
 
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
-    M.get_or_init(|| parse_module(SOURCE, &[]).unwrap_or_else(|e| panic!("commitments.prd:\n{}", e.join("\n"))))
+    M.get_or_init(|| load_module_json(SOURCE, &[]).unwrap_or_else(|e| panic!("commitments.json:\n{}", e.join("\n"))))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +155,8 @@ pub struct Run {
     pub items: BTreeMap<String, Q>,
     /// Non-zero (record id, item, AUD) contributions behind `items`.
     pub parts: Vec<(String, String, Q)>,
+    /// Non-zero (record id, ARF 210.6 item 48-53, AUD) contributions for NSFR.
+    pub nsfr_parts: Vec<(String, String, Q)>,
     pub assumptions: BTreeMap<(String, String), (String, String)>,
 }
 
@@ -162,6 +166,8 @@ pub fn run(book: &Book, reporting_date: NaiveDate, mode: Mode) -> Result<Run, St
     let it = Interp::new(module(), &world, Options { mode, sense: None, params: vec![("reporting_date".into(), day)] })?;
     let mut items: BTreeMap<String, Q> = items().into_iter().map(|i| (i.to_string(), Q::default())).collect();
     let mut parts = Vec::new();
+    let mut nsfr_parts = Vec::new();
+    let zero = Q::default();
     let ids = |t: &str| -> Vec<String> {
         match t {
             "Facility" => book.facilities.iter().map(|x| x.id.clone()).collect(),
@@ -174,7 +180,7 @@ pub fn run(book: &Book, reporting_date: NaiveDate, mode: Mode) -> Result<Run, St
             for (item, total) in items.iter_mut() {
                 match it.call_fn(f, vec![Val::Rec(table.into(), k), Val::Str(item.clone())])? {
                     Val::Num(q) => {
-                        if q != Q::default() {
+                        if q != zero {
                             parts.push((id.clone(), item.clone(), q.clone()));
                         }
                         *total += q
@@ -184,17 +190,51 @@ pub fn run(book: &Book, reporting_date: NaiveDate, mode: Mode) -> Result<Run, St
             }
         }
     }
-    Ok(Run { items, parts, assumptions: it.assumptions() })
+    // ARF 210.6 off-balance sheet items 48-53 (APS 210 Att C Table 1 & para 42).
+    for f in &book.facilities {
+        if f.undrawn > zero {
+            let item = if f.mortgage_redraw {
+                "49"
+            } else {
+                match (f.committed, f.kind) {
+                    (true, FacilityKind::LiquidityFacility) => "48",
+                    (true, FacilityKind::CreditFacility) => "49",
+                    (false, FacilityKind::LiquidityFacility) => "50",
+                    (false, FacilityKind::CreditFacility) => "51",
+                }
+            };
+            nsfr_parts.push((f.id.clone(), item.to_string(), f.undrawn.clone()));
+        }
+    }
+    for c in &book.commitments {
+        if c.amount > zero {
+            nsfr_parts.push((c.id.clone(), "49".to_string(), c.amount.clone()));
+        }
+    }
+    // Items 52 & 53 (Att C para 42): actual 12-month total net outflow, floored at 0.
+    // ContingentObligation.amount stores the 12-month monthly average used in LCR 16.2/16.3,
+    // so multiply by 12 and net per category before flooring at 0 (ARS p.157 checks 52>=0, 53>=0).
+    let twelve = Q::from_integer(12.into());
+    let mut tf_net = Q::default();
+    let mut guar_net = Q::default();
+    for o in &book.obligations {
+        match o.kind {
+            ObligationKind::TradeFinance => tf_net += &o.amount * &twelve,
+            ObligationKind::Guarantee => guar_net += &o.amount * &twelve,
+            _ => {}
+        }
+    }
+    if tf_net > zero {
+        nsfr_parts.push(("trade-finance-12m".into(), "52".to_string(), tf_net));
+    }
+    if guar_net > zero {
+        nsfr_parts.push(("guarantees-12m".into(), "53".to_string(), guar_net));
+    }
+    Ok(Run { items, parts, nsfr_parts, assumptions: it.assumptions() })
 }
 
 /// In AUD millions (the form's unit).
 pub fn arf_inputs(run: &Run) -> BTreeMap<String, Q> {
     let million = Q::from_integer(1_000_000.into());
     run.items.iter().map(|(k, v)| (k.clone(), v / &million)).collect()
-}
-
-/// The Lean model generated from the spec, as written to
-/// lean/Prudence/Commitments.lean.
-pub fn lean_source() -> Result<String, String> {
-    prudence_core::syntax::lean::generate(module(), &[])
 }

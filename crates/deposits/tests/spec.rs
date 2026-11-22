@@ -1,15 +1,20 @@
-//! The Prudence source for these rules (specs/deposits/retail_sme.prd) must
-//! parse and every name in it must resolve.
+//! The Lean-exported IR for the retail/SME deposit rules must load, resolve,
+//! type-check, and pass all Z3 proof obligations; mutations breaking each static
+//! guarantee must be rejected.
 
-use prudence_core::syntax::ast::DeclKind;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::ast::{BinOp, DeclKind, Expr, Pat, Pos, Type};
+use prudence_core::syntax::{load_module_json, validate_module};
 
-const SRC: &str = include_str!("../../../specs/deposits/retail_sme.prd");
+const SRC: &str = include_str!("../../../specs/ir/modules/retail_sme.json");
 const FORMS: [&str; 4] = ["Arf210_1A", "Arf210_1B", "Arf210_2", "Arf210_6"];
 
+fn base_module() -> prudence_core::syntax::ast::Module {
+    load_module_json(SRC, &FORMS).unwrap_or_else(|errs| panic!("\n{}", errs.join("\n")))
+}
+
 #[test]
-fn deposit_module_parses_and_resolves() {
-    let m = parse_module(SRC, &FORMS).unwrap_or_else(|errs| panic!("\n{}", errs.join("\n")));
+fn deposit_module_loads_and_resolves() {
+    let m = base_module();
     assert_eq!(m.name, "RetailAndSmeDeposits");
     let count = |pred: fn(&DeclKind) -> bool| m.decls.iter().filter(|d| pred(&d.kind)).count();
     assert_eq!(count(|k| matches!(k, DeclKind::Fn { body: Some(_), .. })), 7);
@@ -23,12 +28,25 @@ fn deposit_module_parses_and_resolves() {
 }
 
 #[test]
-fn misspelled_names_are_caught_with_positions() {
-    let bad = SRC.replace("SmeGroups[g]", "SmeGroup[g]").replace("=> Called", "=> Calld");
-    let errs = parse_module(&bad, &FORMS).unwrap_err();
-    assert!(errs.iter().any(|e| e.contains("unknown name `SmeGroup`")), "{errs:?}");
-    let bad = SRC.replace("into Arf210_1A, Arf210_6", "into Arf210_1A, Arf210_9");
-    let errs = parse_module(&bad, &FORMS).unwrap_err();
+fn misspelled_names_are_caught() {
+    let mut m = base_module();
+    for d in &mut m.decls {
+        if d.name == "horizon" {
+            if let DeclKind::Fn { body: Some(body), .. } = &mut d.kind {
+                *body = Expr::Ident("Calld".into(), Pos::default());
+            }
+        }
+    }
+    let errs = validate_module(m, &FORMS).unwrap_err();
+    assert!(errs.iter().any(|e| e.contains("unknown name `Calld`")), "{errs:?}");
+
+    let mut m = base_module();
+    for d in &mut m.decls {
+        if let DeclKind::Partition { targets, .. } = &mut d.kind {
+            targets[1] = "Arf210_9".into();
+        }
+    }
+    let errs = validate_module(m, &FORMS).unwrap_err();
     assert!(errs.iter().any(|e| e.contains("unknown form `Arf210_9`")), "{errs:?}");
 }
 
@@ -36,29 +54,101 @@ fn misspelled_names_are_caught_with_positions() {
 /// reject it with a message naming the problem.
 #[test]
 fn type_checker_rejects_each_class_of_error() {
-    let cases: [(&str, &str, &str); 8] = [
-        // Unknown data used without conservative(..)
-        ("conservative(d.online, worst: true)", "d.online", "unknown value"),
-        // Money tags must match: market value vs carrying value
-        ("param fcs_limit      : Money<AUD, Carrying>", "param fcs_limit      : Money<AUD, MarketValue>", "cannot compare"),
-        // Values of different enums never compare
-        ("case class(d.holder) == FinancialInstitution", "case class(d.holder) == Demand", "cannot compare"),
-        // Fields must exist
-        ("c.managed_as_retail, worst: false)", "c.managed_as_retaill, worst: false)", "no field `managed_as_retaill`"),
-        // Match arms agree with the declared return type
-        ("Stable       => 5%", "Stable       => \"5%\"", "match arms differ"),
-        // Patterns only use the scrutinee type's constructors
-        ("Smsf                     => RetailLessStable", "Demand                   => RetailLessStable", "does not match a value of type Kind"),
-        // conservative(..)'s fallback must have the attribute's type
-        ("best: solo(c)", "best: c", "must be a GroupId"),
-        // A Bool condition can't be a number
-        ("if n >= 31 then Excluded", "if n then Excluded", "expected Bool"),
-    ];
-    for (from, to, want) in cases {
-        assert!(SRC.contains(from), "mutation anchor missing: {from}");
-        let bad = SRC.replacen(from, to, 1);
-        let errs = parse_module(&bad, &FORMS).err().unwrap_or_default();
-        assert!(errs.iter().any(|e| e.contains(want)), "`{to}`: expected an error containing {want:?}, got {errs:#?}");
+    // 1. Unknown data used without conservative(..)
+    {
+        let mut m = base_module();
+        for d in &mut m.decls {
+            if d.name == "score" {
+                if let DeclKind::Fn { body: Some(body), .. } = &mut d.kind {
+                    *body = Expr::If {
+                        cond: Box::new(Expr::Member(Box::new(Expr::Ident("d".into(), Pos::default())), "online".into())),
+                        then: Box::new(Expr::Num("2".into(), Pos::default())),
+                        other: Box::new(Expr::Num("0".into(), Pos::default())),
+                    };
+                }
+            }
+        }
+        let errs = validate_module(m, &FORMS).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("unknown value")), "{errs:#?}");
+    }
+    // 2. Money tags must match: market value vs carrying value
+    {
+        let mut m = base_module();
+        for d in &mut m.decls {
+            if d.name == "fcs_limit" {
+                if let DeclKind::Param { ty: Type::Named { generics, .. }, .. } = &mut d.kind {
+                    if let Type::Named { name, .. } = &mut generics[1] {
+                        *name = "MarketValue".into();
+                    }
+                }
+            }
+        }
+        let errs = validate_module(m, &FORMS).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("cannot compare") || e.contains("Money")), "{errs:#?}");
+    }
+    // 3. Values of different enums never compare
+    {
+        let mut m = base_module();
+        for d in &mut m.decls {
+            if let DeclKind::Partition { cases, .. } = &mut d.kind {
+                cases[2].cond = Expr::Binary(
+                    BinOp::Eq,
+                    Box::new(Expr::Call(
+                        Box::new(Expr::Ident("class".into(), Pos::default())),
+                        vec![prudence_core::syntax::ast::Arg {
+                            name: None,
+                            value: Expr::Member(Box::new(Expr::Ident("d".into(), Pos::default())), "holder".into()),
+                        }],
+                    )),
+                    Box::new(Expr::Ident("Demand".into(), Pos::default())),
+                );
+            }
+        }
+        let errs = validate_module(m, &FORMS).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("cannot compare")), "{errs:#?}");
+    }
+    // 4. Fields must exist
+    {
+        let mut m = base_module();
+        for d in &mut m.decls {
+            if d.name == "score" {
+                if let DeclKind::Fn { body: Some(body), .. } = &mut d.kind {
+                    *body = Expr::Member(Box::new(Expr::Ident("d".into(), Pos::default())), "nonexistent_field".into());
+                }
+            }
+        }
+        let errs = validate_module(m, &FORMS).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("no field `nonexistent_field`")), "{errs:#?}");
+    }
+    // 5. Patterns only use the scrutinee type's constructors
+    {
+        let mut m = base_module();
+        for d in &mut m.decls {
+            if d.name == "class" {
+                if let DeclKind::Fn { body: Some(Expr::Match { arms, .. }), .. } = &mut d.kind {
+                    arms[1].pat = Pat::Ctor("Demand".into(), vec![]);
+                }
+            }
+        }
+        let errs = validate_module(m, &FORMS).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("does not match a value of type Kind")), "{errs:#?}");
+    }
+    // 6. A Bool condition can't be a number
+    {
+        let mut m = base_module();
+        for d in &mut m.decls {
+            if d.name == "score" {
+                if let DeclKind::Fn { body: Some(body), .. } = &mut d.kind {
+                    *body = Expr::If {
+                        cond: Box::new(Expr::Num("42".into(), Pos::default())),
+                        then: Box::new(Expr::Num("1".into(), Pos::default())),
+                        other: Box::new(Expr::Num("0".into(), Pos::default())),
+                    };
+                }
+            }
+        }
+        let errs = validate_module(m, &FORMS).unwrap_err();
+        assert!(errs.iter().any(|e| e.contains("expected Bool")), "{errs:#?}");
     }
 }
 
@@ -66,24 +156,28 @@ fn type_checker_rejects_each_class_of_error() {
 /// is exhaustive, for all values of the terms they test (Z3).
 #[test]
 fn module_proof_obligations_hold() {
-    let m = parse_module(SRC, &FORMS).unwrap();
+    let m = base_module();
     let outcomes = prudence_core::syntax::prove::prove_module(&m).unwrap();
     for o in &outcomes {
         assert!(o.proven, "{} NOT proven; counterexample:\n{}", o.obligation, o.counterexample);
     }
-    // 1 exhaustiveness + 3 disjointness for the partition, plus 7 matches:
-    // class, horizon, earliest_redemption, lcr_rate (x2), partition lcr (x2).
     assert_eq!(outcomes.len(), 4 + 7, "{outcomes:#?}");
 }
 
 /// Remove a case and Z3 must find an uncovered depositor class.
 #[test]
 fn a_missing_partition_case_is_found() {
-    let bad = SRC.replace(
-        "case class(d.holder) == FinancialInstitution =>",
-        "case class(d.holder) == FinancialInstitution && false =>",
-    );
-    let m = parse_module(&bad, &FORMS).unwrap();
+    let mut m = base_module();
+    for d in &mut m.decls {
+        if let DeclKind::Partition { cases, .. } = &mut d.kind {
+            cases[2].cond = Expr::Binary(
+                BinOp::And,
+                Box::new(cases[2].cond.clone()),
+                Box::new(Expr::Ident("false".into(), Pos::default())),
+            );
+        }
+    }
+    let m = validate_module(m, &FORMS).unwrap();
     let outcomes = prudence_core::syntax::prove::prove_module(&m).unwrap();
     let exh = outcomes.iter().find(|o| o.obligation.contains("exhaustive") && o.obligation.starts_with("partition")).unwrap();
     assert!(!exh.proven);

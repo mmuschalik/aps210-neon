@@ -1,6 +1,18 @@
-//! Surface syntax tree of a Prudence file.
+//! Surface syntax tree (core IR) of a Prudence specification.
 
-use super::lexer::Pos;
+use std::fmt;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pos {
+    pub line: usize,
+    pub col: usize,
+}
+
+impl fmt::Display for Pos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.line, self.col)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Annotation {

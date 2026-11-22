@@ -11,13 +11,17 @@ pub mod sources;
 
 use prudence_core::cite::{Doc, Loc, Part, Ref};
 use serde_json::{Value, json};
-use sites::{FormItems, ParseFailure, Site};
+use sites::{FormItems, ParseFailure, Site, Theorem};
 use sources::Source;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub struct Report {
     pub sites: Vec<Site>,
+    /// Form code (`210.1A`) and its item ids.
+    pub forms: FormItems,
+    /// Every theorem in the specs, cited or not.
+    pub theorems: Vec<Theorem>,
     pub failures: Vec<ParseFailure>,
     pub sources: Vec<Source>,
     /// Canonical ref -> indices into `sites` that cite it directly.
@@ -53,7 +57,7 @@ impl FindingKind {
 }
 
 pub fn build(root: &Path) -> Result<Report, String> {
-    let (sites, failures, forms) = sites::collect(root);
+    let sites::Collected { sites, failures, forms, theorems } = sites::collect(root);
     let sources = vec![
         Source::load(Doc::Aps210, &root.join("aps-210.html"))?,
         Source::load(Doc::Apg210, &root.join("apg-210.html"))?,
@@ -93,7 +97,7 @@ pub fn build(root: &Path) -> Result<Report, String> {
         }
     }
     findings.sort_by_key(|f| (f.kind, f.site));
-    Ok(Report { sites, failures, sources, cited, findings })
+    Ok(Report { sites, forms, theorems, failures, sources, cited, findings })
 }
 
 /// `9.1` or a pattern with `x` wildcards (`11.x.1`) against every form's items.
@@ -155,7 +159,7 @@ impl Report {
                     })
                     .collect();
                 json!({
-                    "file": s.file, "line": s.line, "kind": s.kind, "context": s.context,
+                    "file": s.file, "line": s.line, "kind": s.kind, "title": s.title, "detail": s.detail, "owner": s.owner,
                     "text": s.text, "source": s.source, "parts": parts,
                 })
             })
@@ -179,7 +183,7 @@ impl Report {
                                     _ => "table",
                                 };
                                 json!({
-                                    "key": e.r.to_string(), "kind": kind, "label": e.label, "text": e.text,
+                                    "key": e.r.to_string(), "kind": kind, "label": e.label, "text": e.text, "heading": e.heading,
                                     "html_id": e.html_id, "sites": self.sites_for(&e.r),
                                     "direct": self.cited.get(&e.r).cloned().unwrap_or_default(),
                                 })
@@ -204,6 +208,12 @@ impl Report {
             .map(|f| json!({ "kind": f.kind.name(), "site": f.site, "detail": f.detail }))
             .collect();
         let failures: Vec<Value> = self.failures.iter().map(|f| json!({ "file": f.file, "error": f.error })).collect();
-        json!({ "docs": docs, "ars": ars, "sites": sites, "findings": findings, "failures": failures })
+        let theorems: Vec<Value> = self
+            .theorems
+            .iter()
+            .map(|t| json!({ "name": t.name, "statement": t.statement, "note": t.note, "owner": t.owner, "file": t.file, "line": t.line, "prover": t.prover }))
+            .collect();
+        let forms: Vec<Value> = self.forms.iter().map(|(code, items)| json!({ "code": code, "items": items.len() })).collect();
+        json!({ "docs": docs, "forms": forms, "theorems": theorems, "ars": ars, "sites": sites, "findings": findings, "failures": failures })
     }
 }

@@ -10,15 +10,15 @@ use prudence_core::Q;
 use prudence_core::date::days_from_civil;
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::syntax::ast::Module;
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::load_module_json;
 use prudence_core::uncertain::{Mode, Uncertain};
 
-pub const SOURCE: &str = include_str!("../../../specs/loans/loans.prd");
+pub const SOURCE: &str = include_str!("../../../specs/ir/modules/loans.json");
 
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
     M.get_or_init(|| {
-        parse_module(SOURCE, &["Arf210_1A", "Arf210_6"]).unwrap_or_else(|e| panic!("loans.prd:\n{}", e.join("\n")))
+        load_module_json(SOURCE, &["Arf210_1A", "Arf210_6"]).unwrap_or_else(|e| panic!("loans.json:\n{}", e.join("\n")))
     })
 }
 
@@ -255,13 +255,6 @@ pub fn arf_inputs(run: &Run) -> (BTreeMap<String, Q>, BTreeMap<String, Q>) {
     let lcr = run.inflows.iter().map(|(k, v)| (k.clone(), v / &million)).collect();
     let nsfr = run.rsf.iter().map(|((i, b), v)| (format!("{i}:{b}"), v / &million)).collect();
     (lcr, nsfr)
-}
-
-/// The Lean model generated from the spec, measured on ARF 210.6, as written
-/// to lean/Prudence/Loans.lean.
-pub fn lean_source() -> Result<String, String> {
-    let targets: Vec<_> = arf210::lean_targets()?.into_iter().filter(|(t, _)| t == "Arf210_6").collect();
-    prudence_core::syntax::lean::generate(module(), &targets)
 }
 
 /// Principal falling due before each date in `ends` (exclusive), per loan,

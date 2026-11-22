@@ -10,6 +10,9 @@
 //! swaps gross, FX trading excluded) rather than the netted totals; the form
 //! therefore states the tie-out to items 18 and 23 as a warning, not an error.
 
+pub mod aps210_rules;
+pub mod behavioural;
+pub mod level2;
 pub mod maturity;
 pub mod steering;
 
@@ -95,9 +98,27 @@ pub fn assemble(parts: &[Part], rates: &BTreeMap<String, Q>) -> Result<BTreeMap<
     Ok(inputs)
 }
 
+/// Canonical cross-book counterparty / legal entity (APS 210 / APS 221).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Counterparty {
+    pub id: String,
+    pub legal_name: String,
+    pub sector: String,
+    pub adi_tier: Option<String>,
+    pub affiliation: String,
+    pub jurisdiction: String,
+    pub connected_group_id: Option<String>,
+    pub sme_group: Option<String>,
+    pub established_relationship: Option<bool>,
+    pub managed_as_retail: Option<bool>,
+    pub pie_qualifies: Option<bool>,
+}
+
 /// Everything one ADI reports, by module.
 #[derive(Clone, Default)]
 pub struct Bank {
+    /// Canonical shared counterparty registry across all books.
+    pub counterparties: Vec<Counterparty>,
     pub retail: deposits::Book,
     pub wholesale_customers: Vec<deposits::wholesale::Customer>,
     pub wholesale_deposits: Vec<deposits::wholesale::Deposit>,
@@ -117,6 +138,19 @@ pub struct Bank {
     pub gl: BTreeMap<String, Q>,
     /// Record id -> ledger account, overriding `default_account`.
     pub gl_account: BTreeMap<String, String>,
+    /// Record IDs belonging to APS 120 capital-relief SPVs: excluded from MLH &
+    /// NSFR, included in LCR, maturity mismatch, funding plan and daily (APS 210 §5).
+    pub capital_relief_spv: std::collections::BTreeSet<String>,
+    /// Bitemporal HQLA rating downgrade events (APS 210 Att A §25 30-day grace).
+    pub downgrades: Vec<secured::hqla_rules::DowngradeEvent>,
+    /// Price-risk hedge close-out adjustments to LCR HQLA market values (ARS p.39).
+    pub hqla_hedges: Vec<secured::hqla_rules::HedgeAdjustment>,
+    /// Posted variation margin deducted in NSFR 13.1.2 that must be removed from RSF (Att C fn 12).
+    pub posted_vm_assets: Vec<aps210_rules::PostedVariationMargin>,
+    /// CLF/ALA assets subject to the NSFR 10% RSF quota cap & 65%/85% spillover (Att C §32).
+    pub clf_nsfr_assets: Vec<aps210_rules::ClfAsset>,
+    /// Validated interdependent asset/liability pairs (0% ASF / 0% RSF, Att C §37).
+    pub interdependent_pairs: Vec<aps210_rules::InterdependentPair>,
 }
 
 /// The ledger account a balance-sheet record posts to by default.
@@ -153,15 +187,36 @@ pub struct Return {
     pub assumptions: Vec<(&'static str, String, String, String, String)>,
 }
 
-/// Run every module and assemble ARF 210.1A.
+/// Run every module and assemble ARF 210.1A (as known on `reporting_date`).
 pub fn lcr_return(bank: &Bank, reporting_date: NaiveDate, mode: Mode) -> Result<Return, String> {
-    lcr_return_modes(bank, reporting_date, &|_| mode)
+    lcr_return_as_known(bank, reporting_date, reporting_date, mode)
+}
+
+/// Whole-return bitemporal replay: run every module as known at `known_at`
+/// (threads `known_at` into both retail/SME deposits and derivatives).
+pub fn lcr_return_as_known(
+    bank: &Bank,
+    reporting_date: NaiveDate,
+    known_at: NaiveDate,
+    mode: Mode,
+) -> Result<Return, String> {
+    lcr_return_modes_as_known(bank, reporting_date, known_at, &|_| mode)
 }
 
 /// As `lcr_return`, with each module's unknowns resolved in its own mode
 /// (module names: retail, wholesale, secured, obligations, loans, funding,
 /// derivatives) - for attributing the cost of missing data.
 pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&str) -> Mode) -> Result<Return, String> {
+    lcr_return_modes_as_known(bank, reporting_date, reporting_date, modes)
+}
+
+/// As `lcr_return_modes`, with an explicit bitemporal `known_at` cutoff.
+pub fn lcr_return_modes_as_known(
+    bank: &Bank,
+    reporting_date: NaiveDate,
+    known_at: NaiveDate,
+    modes: &dyn Fn(&str) -> Mode,
+) -> Result<Return, String> {
     let ccy = |id: &str| bank.currency.get(id).cloned().unwrap_or_else(|| "AUD".into());
     let mut parts = Vec::new();
     let mut assumptions = Vec::new();
@@ -179,6 +234,10 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
     let mut nsfr: BTreeMap<String, Q> = BTreeMap::new();
     let mut nsfr_parts = Vec::new();
     let mut nsfr_add = |source: &str, item: &str, col: &str, q: &Q| {
+        // APS 210 §5: APS 120 capital-relief SPVs are excluded from NSFR.
+        if bank.capital_relief_spv.contains(source) {
+            return;
+        }
         let k = nsfr_key(item, col);
         nsfr_parts.push(checker::FormContribution {
             source: source.into(),
@@ -207,6 +266,7 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
         &bank.retail,
         &deposits::Params {
             mode: modes("retail"),
+            known_at,
             ..deposits::Params::new(reporting_date)
         },
     )
@@ -265,7 +325,16 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
         let kind = if r.leg == secured::Leg::Funding { "repo-funding" } else { "repo-lending" };
         records.push((r.id.clone(), kind, r.cash.clone(), false));
     }
-    let r = secured::run(&bank.holdings, &bank.repos, reporting_date, modes("secured"), bank.has_clf)?;
+    let eff_holdings = secured::hqla_rules::apply_downgrade_grace(&bank.holdings, &bank.downgrades, reporting_date, known_at);
+    let eff_holdings = secured::hqla_rules::apply_hedge_adjustments(&eff_holdings, &bank.hqla_hedges);
+    let clf_ids: std::collections::BTreeSet<&str> = bank.clf_nsfr_assets.iter().map(|a| a.id.as_str()).collect();
+    let r = secured::run(&eff_holdings, &bank.repos, reporting_date, modes("secured"), bank.has_clf)?;
+    for (id, item, col, q) in &r.nsfr_parts {
+        // Avoid double-counting holdings whose NSFR RSF is allocated via bank.clf_nsfr_assets.
+        if !clf_ids.contains(id.as_str()) {
+            nsfr_add(id, item, col, q);
+        }
+    }
     for (id, i, q) in r.parts {
         push("secured", &id, &i, q, ccy(&id), Stream::Both);
     }
@@ -276,6 +345,9 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
     };
     keep("secured", r.assumptions);
     let r = obligations::run(&bank.commitments, reporting_date, modes("obligations"))?;
+    for (id, item, q) in &r.nsfr_parts {
+        nsfr_add(id, item, "amount", q);
+    }
     for (id, i, q) in r.parts {
         push("obligations", &id, &i, q, ccy(&id), Stream::Both);
     }
@@ -313,7 +385,7 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
         }
     }
     keep("funding", r.assumptions);
-    let r = derivatives::run(&bank.derivatives, reporting_date, reporting_date, modes("derivatives"))?;
+    let r = derivatives::run(&bank.derivatives, reporting_date, known_at, modes("derivatives"))?;
     for (k, t) in bank.derivatives.trades.iter().enumerate() {
         records.push((format!("trade{k}"), "derivative", t.mtm.clone(), false));
     }
@@ -328,6 +400,10 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
         push("derivatives", &id, &i, q, c, Stream::Split);
     }
     keep("derivatives", r.assumptions);
+    let wholesale_by_id: std::collections::HashMap<&str, &deposits::wholesale::Deposit> =
+        bank.wholesale_deposits.iter().map(|d| (d.id.as_str(), d)).collect();
+    let retail_by_id: std::collections::HashMap<&str, &deposits::DepositAccount> =
+        bank.retail.accounts.iter().map(|d| (d.id.as_str(), d)).collect();
     for cert in &mut certificates {
         let wholesale = cert.name.starts_with("wholesale/");
         let mode = modes(if wholesale { "wholesale" } else { "retail" });
@@ -341,7 +417,7 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
         };
         for id in &cert.subjects {
             if wholesale {
-                let d = bank.wholesale_deposits.iter().find(|d| &d.id == id).ok_or("missing wholesale FCS subject")?;
+                let d = wholesale_by_id.get(id.as_str()).ok_or("missing wholesale FCS subject")?;
                 t.eligible.push(resolved_bool(&d.fcs_eligible));
                 let op = if resolved_bool(&d.operational_service) {
                     d.operational_balance
@@ -356,7 +432,7 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
                 t.covered_rates.push(Q::default());
                 t.uncovered_rates.push(Q::default());
             } else {
-                let d = bank.retail.accounts.iter().find(|d| &d.id == id).ok_or("missing retail FCS subject")?;
+                let d = retail_by_id.get(id.as_str()).ok_or("missing retail FCS subject")?;
                 t.eligible.push(resolved_bool(&d.fcs_eligible));
                 t.operational.push(Q::default());
                 let (covered, uncovered) = &c.fcs_rates[id];
@@ -367,6 +443,49 @@ pub fn lcr_return_modes(bank: &Bank, reporting_date: NaiveDate, modes: &dyn Fn(&
         cert.fcs = Some(t);
     }
     let inputs = assemble(&parts, &BTreeMap::new())?;
+
+    // Item 5 (Att C §32): NSFR CLF/ALA 10% RSF quota capped by LCR CLF, spilling excess to 65%/85%.
+    if !bank.clf_nsfr_assets.is_empty() {
+        let lcr_ev = eval(&inputs)?;
+        let lcr_clf_cap_aud = lcr_ev.q("6.5").clone() * million();
+        let sp = aps210_rules::apply_clf_rsf_quota(&bank.clf_nsfr_assets, &lcr_clf_cap_aud);
+        if sp.eligible_10pct > Q::default() {
+            nsfr_add("clf-quota", "27.1", "b2", &sp.eligible_10pct);
+        }
+        if sp.spillover_65pct > Q::default() {
+            nsfr_add("clf-spillover-65", "35.1", "b2", &sp.spillover_65pct);
+        }
+        if sp.spillover_85pct > Q::default() {
+            nsfr_add("clf-spillover-85", "37.1", "b2", &sp.spillover_85pct);
+        }
+    }
+
+    // Item 6 (Att C §37): validated interdependent asset/liability pairs -> 0% ASF (item 17) & 0% RSF (item 44).
+    if !bank.interdependent_pairs.is_empty() {
+        aps210_rules::validate_interdependent_pairs(&bank.interdependent_pairs)?;
+        for ip in &bank.interdependent_pairs {
+            nsfr_add(&ip.liability_record_id, "17", "b2", &ip.amount);
+            nsfr_add(&ip.asset_record_id, "44", "b2", &ip.amount);
+        }
+    }
+
+    // Item 4 (Att C fn 12): remove posted variation margin deducted in 13.1.2 from RSF assets.
+    if !bank.posted_vm_assets.is_empty() {
+        let vm_13_1_2_aud = nsfr.get("13.1.2").cloned().unwrap_or_default() * million();
+        aps210_rules::verify_posted_vm_conservation(&bank.posted_vm_assets, &vm_13_1_2_aud)?;
+        let zero = Q::default();
+        for pvm in &bank.posted_vm_assets {
+            let amt_m = &pvm.amount / million();
+            let entry = nsfr.entry(pvm.rsf_cell.clone()).or_default();
+            *entry = (&*entry - &amt_m).max(zero.clone());
+            nsfr_parts.push(checker::FormContribution {
+                source: pvm.asset_record_id.clone(),
+                cell: pvm.rsf_cell.clone(),
+                amount: -amt_m,
+            });
+        }
+    }
+
     Ok(Return {
         parts,
         inputs,
@@ -409,16 +528,17 @@ pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker:
     };
     let mut specs: Vec<(String, String)> = arf210::SPECS.iter().map(|(code, src)| (format!("forms/{code}"), src.to_string())).collect();
     for (path, src) in [
-        ("specs/deposits/retail_sme.prd", deposits::prudence::SOURCE),
-        ("specs/deposits/wholesale.prd", deposits::wholesale::SOURCE),
-        ("specs/secured/secured_funding.prd", secured::SOURCE),
-        ("specs/obligations/commitments.prd", obligations::SOURCE),
-        ("specs/loans/loans.prd", loans::SOURCE),
-        ("specs/derivatives/derivatives.prd", derivatives::SOURCE),
-        ("specs/funding/funding.prd", funding::SOURCE),
+        ("specs/ir/modules/retail_sme.json", deposits::prudence::SOURCE),
+        ("specs/ir/modules/wholesale.json", deposits::wholesale::SOURCE),
+        ("specs/ir/modules/secured_funding.json", secured::SOURCE),
+        ("specs/ir/modules/commitments.json", obligations::SOURCE),
+        ("specs/ir/modules/loans.json", loans::SOURCE),
+        ("specs/ir/modules/derivatives.json", derivatives::SOURCE),
+        ("specs/ir/modules/funding.json", funding::SOURCE),
     ] {
         specs.push((path.into(), src.into()));
     }
+    let record_ids: std::collections::HashSet<&str> = ret.records.iter().map(|(id, _, _, _)| id.as_str()).collect();
     let mut package = checker::Package {
         reporting_date: reporting_date.to_string(),
         contexts: BTreeMap::new(),
@@ -462,12 +582,12 @@ pub fn package(bank: &Bank, ret: &Return, reporting_date: NaiveDate) -> checker:
         external_sources: ret
             .parts
             .iter()
-            .filter(|p| !ret.records.iter().any(|(id, _, _, _)| id == &p.record))
+            .filter(|p| !record_ids.contains(p.record.as_str()))
             .map(|p| (p.record.clone(), format!("{} aggregate or off-balance-sheet source; not GL reconciled", p.module)))
             .collect(),
     };
     for part in &ret.nsfr_parts {
-        if !package.records.iter().any(|r| r.id == part.source) {
+        if !record_ids.contains(part.source.as_str()) {
             package
                 .external_sources
                 .entry(part.source.clone())

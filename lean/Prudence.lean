@@ -1,3 +1,7 @@
+import Prudence.DSL
+import Prudence.JSON
+import Prudence.SQL
+import Prudence.Canonical
 import Prudence.RetailSme
 import Prudence.Proofs
 import Prudence.SecuredFunding
@@ -12,4 +16,4 @@ import Prudence.Funding
 import Prudence.FundingProofs
 import Prudence.Derivatives
 import Prudence.DerivativesProofs
-/-! Generated models and their proofs. -/
+/-! Prudence Lean 4 DSL, IR/SQL compilers, models, and machine-checked proofs. -/

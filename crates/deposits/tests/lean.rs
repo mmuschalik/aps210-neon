@@ -43,13 +43,6 @@ fn lean_file(name: &str, src: &str) -> (bool, String) {
 }
 
 #[test]
-fn generated_model_is_up_to_date() {
-    let want = deposits::prudence::lean_source().unwrap();
-    let have = std::fs::read_to_string(lean_dir().join("Prudence/RetailSme.lean")).unwrap();
-    assert!(have == want, "lean/Prudence/RetailSme.lean is stale: run `cargo run -p deposits --bin prudence-lean`");
-}
-
-#[test]
 fn proofs_about_the_generated_model_check() {
     let proofs = std::fs::read_to_string(lean_dir().join("Prudence/Proofs.lean")).unwrap();
     assert!(!proofs.contains("sorry") && !proofs.contains("admit") && !proofs.contains("native_decide"));

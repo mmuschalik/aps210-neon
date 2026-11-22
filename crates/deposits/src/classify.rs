@@ -201,14 +201,17 @@ pub fn classify(book: &Book, params: &Params) -> Result<Classification, Classify
         });
     }
 
-    // Exhaustive and disjoint: every account's slices add back to its balance.
+    // Exhaustive and disjoint: every account's slices add back to its balance (O(N)).
+    let mut by_acct: std::collections::HashMap<&str, Vec<AudCarrying>> =
+        std::collections::HashMap::with_capacity(book.accounts.len());
+    for s in &slices {
+        by_acct.entry(s.account_id.as_str()).or_default().push(s.amount.clone());
+    }
     for a in &book.accounts {
-        let parts: Vec<AudCarrying> =
-            slices.iter().filter(|s| s.account_id == a.id).map(|s| s.amount.clone()).collect();
-        if parts.is_empty() {
+        let Some(parts) = by_acct.get(a.id.as_str()) else {
             return Err(ClassifyError::Conservation { account: a.id.clone(), detail: "not classified".into() });
-        }
-        conserve(&a.balance, &parts).map_err(|detail| ClassifyError::Conservation { account: a.id.clone(), detail })?;
+        };
+        conserve(&a.balance, parts).map_err(|detail| ClassifyError::Conservation { account: a.id.clone(), detail })?;
     }
 
     let allocations = run.allocations;

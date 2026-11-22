@@ -1,0 +1,22 @@
+[package]
+name = "steel"
+version = "0.1.0"
+description = "Steel thread: a synthetic ADI generated from a seed, run end to end through every module, every ARF 210 form and the trusted gate, plus the capability spikes the full build depends on"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prudence-core = { path = "../prudence-core" }
+arf210 = { path = "../arf210" }
+assembly = { path = "../assembly" }
+checker = { path = "../checker" }
+deposits = { path = "../deposits" }
+secured = { path = "../secured" }
+obligations = { path = "../obligations" }
+loans = { path = "../loans" }
+derivatives = { path = "../derivatives" }
+funding = { path = "../funding" }
+num-traits.workspace = true
+serde_json.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["std"] }

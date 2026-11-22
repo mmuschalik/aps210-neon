@@ -1,40 +1,34 @@
-//! ARF 210 reporting forms (ARS 210.0), defined as Prudence specs in
-//! `specs/arf210/*.prd` and evaluated by `prudence-core`.
+//! ARF 210 reporting forms (ARS 210.0), defined in the Lean 4 Prudence DSL
+//! (`lean/Prudence/Specs/Forms/*.lean`), exported to JSON IR (`specs/ir/forms/*.json`),
+//! and evaluated by `prudence-core`.
 
 use std::sync::OnceLock;
 
 use prudence_core::Form;
-use prudence_core::syntax::parse_form;
+use prudence_core::syntax::load_form_json;
 
 pub mod crossform;
 
-/// Header comment for the canonical spec files.
-pub const SPEC_HEADER: [&str; 3] = [
-    "Prudence form spec. Source of truth: edit this file, not code.",
-    "Source: ARS 210.0 (F2023L00417) forms and instructions; APS 210 (July 2025).",
-    "Format with: cargo run -p arf210 -- fmt <form>",
-];
-
-/// (form code, source) of every form spec.
+/// (form code, JSON IR source) of every form spec.
 pub const SPECS: [(&str, &str); 8] = [
-    ("ARF 210.1A", include_str!("../../../specs/arf210/arf_210_1a.prd")),
-    ("ARF 210.1B", include_str!("../../../specs/arf210/arf_210_1b.prd")),
-    ("ARF 210.2", include_str!("../../../specs/arf210/arf_210_2.prd")),
-    ("ARF 210.3.1", include_str!("../../../specs/arf210/arf_210_3_1.prd")),
-    ("ARF 210.3.2", include_str!("../../../specs/arf210/arf_210_3_2.prd")),
-    ("ARF 210.4", include_str!("../../../specs/arf210/arf_210_4.prd")),
-    ("ARF 210.5", include_str!("../../../specs/arf210/arf_210_5.prd")),
-    ("ARF 210.6", include_str!("../../../specs/arf210/arf_210_6.prd")),
+    ("ARF 210.1A", include_str!("../../../specs/ir/forms/arf_210_1a.json")),
+    ("ARF 210.1B", include_str!("../../../specs/ir/forms/arf_210_1b.json")),
+    ("ARF 210.2", include_str!("../../../specs/ir/forms/arf_210_2.json")),
+    ("ARF 210.3.1", include_str!("../../../specs/ir/forms/arf_210_3_1.json")),
+    ("ARF 210.3.2", include_str!("../../../specs/ir/forms/arf_210_3_2.json")),
+    ("ARF 210.4", include_str!("../../../specs/ir/forms/arf_210_4.json")),
+    ("ARF 210.5", include_str!("../../../specs/ir/forms/arf_210_5.json")),
+    ("ARF 210.6", include_str!("../../../specs/ir/forms/arf_210_6.json")),
 ];
 
-/// All forms, parsed and statically validated once.
+/// All forms, loaded from Lean-exported IR JSON and statically validated once.
 pub fn forms() -> &'static [Form] {
     static FORMS: OnceLock<Vec<Form>> = OnceLock::new();
     FORMS.get_or_init(|| {
         SPECS
             .iter()
             .map(|(code, src)| {
-                let f = parse_form(src).unwrap_or_else(|e| panic!("{code}: {e}"));
+                let f = load_form_json(src).unwrap_or_else(|e| panic!("{code}: {e}"));
                 assert_eq!(&f.code, code, "spec file declares the wrong form code");
                 f
             })
@@ -76,11 +70,9 @@ pub fn daily() -> &'static Form {
 
 pub use prudence_core::Missing;
 
-/// The ARF 210.1A weights and ARF 210.6 factors (whole percentages) that
-/// measure a module's partition in its generated Lean model.
-pub fn lean_targets() -> Result<Vec<(String, prudence_core::syntax::lean::Measure)>, String> {
+/// NSFR factors (whole percentages) per (item id, maturity bucket).
+pub fn nsfr_factors() -> Result<std::collections::BTreeMap<(String, u32), i64>, String> {
     use prudence_core::ir::{Cell, Expr};
-    use prudence_core::syntax::lean::Measure;
     use std::collections::BTreeMap;
     let pct = |q: &prudence_core::Q| -> Result<i64, String> {
         let p = q * prudence_core::Q::from_integer(100.into());
@@ -93,19 +85,11 @@ pub fn lean_targets() -> Result<Vec<(String, prudence_core::syntax::lean::Measur
         Some(Cell::Derived(Expr::Const(q))) => Some(q.clone()),
         _ => None,
     };
-    let mut weights = BTreeMap::new();
-    for it in &lcr_all().items {
-        if let Some(q) = constant(it.cell("weight")) {
-            weights.insert(it.id.clone(), pct(&q)?);
-        }
-    }
     let mut factors = BTreeMap::new();
     for it in &nsfr().items {
         for (b, col) in ["f0", "f1", "f2"].iter().enumerate() {
             if let Some(q) = constant(it.cell(col)) {
                 factors.insert((it.id.clone(), b as u32), pct(&q)?);
-                // Single-column rows summed into this bucket (e.g. 8.1 and 8.2
-                // into item 8's b0) take its factor: "bucket" 9 is `amount`.
                 if let Some(prudence_core::ir::Cell::Derived(e)) = it.cell(&format!("b{b}")) {
                     let mut refs = Vec::new();
                     e.refs(&mut refs);
@@ -116,5 +100,5 @@ pub fn lean_targets() -> Result<Vec<(String, prudence_core::syntax::lean::Measur
             }
         }
     }
-    Ok(vec![("Arf210_1A".into(), Measure::Weight(weights)), ("Arf210_6".into(), Measure::Factor(factors))])
+    Ok(factors)
 }

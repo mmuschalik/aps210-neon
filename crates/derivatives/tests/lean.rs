@@ -14,13 +14,6 @@ fn lake(args: &[&str]) -> (bool, String) {
 }
 
 #[test]
-fn generated_model_is_up_to_date() {
-    let want = derivatives::lean_source().unwrap();
-    let have = std::fs::read_to_string(lean_dir().join("Prudence/Derivatives.lean")).unwrap();
-    assert!(have == want, "lean/Prudence/Derivatives.lean is stale: run `cargo run -p derivatives --bin derivatives-lean`");
-}
-
-#[test]
 fn proofs_check_with_standard_axioms_only() {
     let proofs = std::fs::read_to_string(lean_dir().join("Prudence/DerivativesProofs.lean")).unwrap();
     assert!(!proofs.contains("sorry") && !proofs.contains("admit") && !proofs.contains("native_decide"));

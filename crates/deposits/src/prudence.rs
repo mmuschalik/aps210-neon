@@ -8,19 +8,19 @@ use prudence_core::Q;
 use prudence_core::date::days_from_civil;
 use prudence_core::interp::{Interp, Options, Record, Val, World};
 use prudence_core::syntax::ast::{Module, Sense};
-use prudence_core::syntax::parse_module;
+use prudence_core::syntax::load_module_json;
 use prudence_core::uncertain::Uncertain;
 
 use crate::classify::{FcsAllocation, Params};
 use crate::model::{Book, Contract, CustomerKind, EarlyWithdrawal, EventKind};
 
-pub const SOURCE: &str = include_str!("../../../specs/deposits/retail_sme.prd");
+pub const SOURCE: &str = include_str!("../../../specs/ir/modules/retail_sme.json");
 pub const FORMS: [&str; 4] = ["Arf210_1A", "Arf210_1B", "Arf210_2", "Arf210_6"];
 
-/// The parsed and name-resolved module.
+/// The loaded and validated module (from `lean/Prudence/Specs/Modules/RetailSme.lean`).
 pub fn module() -> &'static Module {
     static M: OnceLock<Module> = OnceLock::new();
-    M.get_or_init(|| parse_module(SOURCE, &FORMS).unwrap_or_else(|e| panic!("retail_sme.prd:\n{}", e.join("\n"))))
+    M.get_or_init(|| load_module_json(SOURCE, &FORMS).unwrap_or_else(|e| panic!("retail_sme.json:\n{}", e.join("\n"))))
 }
 
 fn date(d: NaiveDate) -> Val {
@@ -159,7 +159,119 @@ pub struct SpecRun {
 }
 
 /// Interpret the module for `book` under `params`.
+/// For large books (> 256 customers), partitions customers into independent
+/// chunks (keeping every `sme_group` intact) and evaluates in parallel across
+/// CPU cores, eliminating O(N²) SME-group scans while producing identical output.
 pub fn run(book: &Book, params: &Params) -> Result<SpecRun, String> {
+    if book.customers.len() <= 256 {
+        return run_single(book, params);
+    }
+    // Group customers by sme_group (known group id) so connected SMEs stay together.
+    let mut groups: std::collections::BTreeMap<String, Vec<usize>> = std::collections::BTreeMap::new();
+    let mut singles: Vec<usize> = Vec::new();
+    for (i, c) in book.customers.iter().enumerate() {
+        if let Uncertain::Known(g) = &c.sme_group {
+            groups.entry(g.clone()).or_default().push(i);
+        } else {
+            singles.push(i);
+        }
+    }
+    // Pack groups + singles into chunks of ~128 customers.
+    const CHUNK_TARGET: usize = 128;
+    let mut chunks: Vec<Vec<usize>> = Vec::new();
+    let mut cur: Vec<usize> = Vec::new();
+    for (_, idxs) in groups {
+        if !cur.is_empty() && cur.len() + idxs.len() > CHUNK_TARGET {
+            chunks.push(std::mem::take(&mut cur));
+        }
+        cur.extend(idxs);
+    }
+    for idx in singles {
+        if cur.len() >= CHUNK_TARGET {
+            chunks.push(std::mem::take(&mut cur));
+        }
+        cur.push(idx);
+    }
+    if !cur.is_empty() {
+        chunks.push(cur);
+    }
+
+    // Index accounts by customer_id once (O(N)).
+    let mut accts_by_cust: std::collections::HashMap<&str, Vec<usize>> = std::collections::HashMap::new();
+    for (i, a) in book.accounts.iter().enumerate() {
+        accts_by_cust.entry(a.customer_id.as_str()).or_default().push(i);
+    }
+    // Separate global EarlyWithdrawal events from account-scoped NoticeGiven events.
+    let mut global_events = Vec::new();
+    let mut notice_by_acct: std::collections::HashMap<&str, Vec<&crate::model::Event>> = std::collections::HashMap::new();
+    for e in book.ledger.as_of(NaiveDate::MAX, NaiveDate::MAX) {
+        match &e.kind {
+            EventKind::EarlyWithdrawal { .. } => global_events.push(e),
+            EventKind::NoticeGiven { account_id, .. } => {
+                notice_by_acct.entry(account_id.as_str()).or_default().push(e);
+            }
+        }
+    }
+
+    // Build shard Books and run across available CPU cores.
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(chunks.len());
+    let chunk_slice = &chunks;
+    let accts_ref = &accts_by_cust;
+    let global_ref = &global_events;
+    let notice_ref = &notice_by_acct;
+    let results: Result<Vec<SpecRun>, String> = std::thread::scope(|s| {
+        let mut handles = Vec::with_capacity(threads);
+        let per_thread = chunk_slice.len().div_ceil(threads);
+        for band in chunk_slice.chunks(per_thread) {
+            handles.push(s.spawn(move || -> Result<Vec<SpecRun>, String> {
+                let mut local = Vec::with_capacity(band.len());
+                for c_idxs in band {
+                    let mut sub = Book::default();
+                    for &ci in c_idxs {
+                        let c = &book.customers[ci];
+                        sub.customers.push(c.clone());
+                        if let Some(ais) = accts_ref.get(c.id.as_str()) {
+                            for &ai in ais {
+                                let a = &book.accounts[ai];
+                                if let Some(nes) = notice_ref.get(a.id.as_str()) {
+                                    for ne in nes {
+                                        sub.ledger.record(ne.kind.clone(), ne.valid, ne.recorded);
+                                    }
+                                }
+                                sub.accounts.push(a.clone());
+                            }
+                        }
+                    }
+                    for ge in global_ref {
+                        sub.ledger.record(ge.kind.clone(), ge.valid, ge.recorded);
+                    }
+                    local.push(run_single(&sub, params)?);
+                }
+                Ok(local)
+            }));
+        }
+        let mut all = Vec::with_capacity(chunk_slice.len());
+        for h in handles {
+            all.extend(h.join().map_err(|_| "worker thread panicked".to_string())??);
+        }
+        Ok(all)
+    });
+
+    let mut fcs_rates = std::collections::BTreeMap::new();
+    let mut slices = Vec::with_capacity(book.accounts.len());
+    let mut assumptions = std::collections::BTreeMap::new();
+    let mut allocations = Vec::new();
+    for r in results? {
+        fcs_rates.extend(r.fcs_rates);
+        slices.extend(r.slices);
+        assumptions.extend(r.assumptions);
+        allocations.extend(r.allocations);
+    }
+    slices.sort();
+    Ok(SpecRun { fcs_rates, slices, assumptions, allocations })
+}
+
+fn run_single(book: &Book, params: &Params) -> Result<SpecRun, String> {
     let world = load(book);
     let opts = Options {
         mode: params.mode,
@@ -201,10 +313,4 @@ pub fn run(book: &Book, params: &Params) -> Result<SpecRun, String> {
     }
     slices.sort();
     Ok(SpecRun { fcs_rates, slices, assumptions: out.assumptions, allocations: out.allocations })
-}
-
-/// The Lean model generated from the spec, measured on ARF 210.1A (weights)
-/// and ARF 210.6 (factors), as written to lean/Prudence/RetailSme.lean.
-pub fn lean_source() -> Result<String, String> {
-    prudence_core::syntax::lean::generate(module(), &arf210::lean_targets()?)
 }

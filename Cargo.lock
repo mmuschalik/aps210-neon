@@ -167,6 +167,7 @@ dependencies = [
  "num-integer",
  "num-rational",
  "num-traits",
+ "serde_json",
 ]
 
 [[package]]
@@ -228,6 +229,25 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "steel"
+version = "0.1.0"
+dependencies = [
+ "arf210",
+ "assembly",
+ "checker",
+ "chrono",
+ "deposits",
+ "derivatives",
+ "funding",
+ "loans",
+ "num-traits",
+ "obligations",
+ "prudence-core",
+ "secured",
+ "serde_json",
 ]
 
 [[package]]

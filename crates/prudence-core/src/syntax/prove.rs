@@ -333,8 +333,8 @@ fn strip(e: &SExpr) -> &SExpr {
     }
 }
 
-fn lexpos() -> super::lexer::Pos {
-    super::lexer::Pos { line: 0, col: 0 }
+fn lexpos() -> super::ast::Pos {
+    super::ast::Pos { line: 0, col: 0 }
 }
 
 fn collect_matches<'e>(e: &'e SExpr, out: &mut Vec<&'e SExpr>) {

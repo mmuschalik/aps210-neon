@@ -66,6 +66,7 @@ structure Deposit where
   fcs_eligible : U (Bool)
   operational_service : U (Bool)
   operational_balance : U (Int)
+  maturity : Option Int := none
   deriving DecidableEq, Repr, Inhabited
 
 /-- Everything the rules read that is not computed here. -/
@@ -74,6 +75,8 @@ structure World where
   fcs_limit : Int
   insured : Mode → Deposit → Int  -- optimize solution
   Customer_deposits : Customer → List (Deposit)  -- cyclic record field
+  m6 : Int := 0
+  m12 : Int := 0
 
 def operational_amount (W : World) (m : Mode) (d : Deposit) : Int :=
   (if (resolve m d.operational_service false (!false)) then (min d.balance (resolve m d.operational_balance (0 : Int) d.balance)) else (0 : Int))
@@ -255,18 +258,22 @@ def measure_Arf210_1A (W : World) (m : Mode) (d : Deposit) : Int :=
     + weight_Arf210_1A (out_lcr W m d false false) * portion W m d false false
 
 def out_nsfr (W : World) (m : Mode) (d : Deposit) (operational : Bool) (covered : Bool) : String × Nat :=
+  let item := match d.holder.kind with
+    | .NonFinancialCorporate => "9"
+    | .SovereignCentralBankPseMdb => "10"
+    | _ => "12"
+  let bkt : Nat := match d.maturity with
+    | none => 0
+    | some mat => if mat < W.m6 then 0 else if mat < W.m12 then 1 else 2
   if ((!d.within_30_days) && (!d.called)) then
-    ("12", (0 : Nat))
+    (item, bkt)
   else if ((d.within_30_days || d.called) && d.called) then
-    ("12", (0 : Nat))
+    (item, (0 : Nat))
   else if ((d.within_30_days && (!d.called)) && operational) then
     ("8.2", (9 : Nat))
-  else 
+  else
     -- remaining case (exhaustive by the Z3 obligation): ((d.within_30_days && (!d.called)) && (!operational))
-    (match d.holder.kind with
-    | .NonFinancialCorporate => ("9", (0 : Nat))
-    | .SovereignCentralBankPseMdb => ("10", (0 : Nat))
-    | _ => ("12", (0 : Nat)))
+    (item, (0 : Nat))
 
 /-- Factors of Arf210_6 by maturity bucket (percent). -/
 def factor_Arf210_6 : String × Nat → Int

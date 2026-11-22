@@ -13,8 +13,9 @@ pub mod money;
 pub mod num;
 pub mod syntax;
 pub mod uncertain;
+pub mod upstream;
 
 pub use eval::{Evaluation, Finding, InputError, Missing, Value, evaluate};
 pub use ir::{Cell, Expr, Form, Item, Ref};
 pub use num::Q;
-pub use syntax::parse_form;
+pub use syntax::{load_file_json, load_form_json, load_module_json, validate_module};

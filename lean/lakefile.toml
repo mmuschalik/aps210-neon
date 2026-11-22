@@ -1,5 +1,9 @@
 name = "prudence"
-defaultTargets = ["Prudence"]
+defaultTargets = ["Prudence", "prudence-export"]
 
 [[lean_lib]]
 name = "Prudence"
+
+[[lean_exe]]
+name = "prudence-export"
+root = "Prudence.Export"
