@@ -142,7 +142,7 @@ fn generated_model_agrees_with_the_interpreter() {
                  let d : Deposit := {{ holder := c, balance := {bal}, within_30_days := {}, called := {}, \
                  fcs_eligible := {}, operational_service := {}, operational_balance := {}, maturity := {mat_lean} }}\n  \
                  let W : World := {{ reporting_date := {rd_days}, fcs_limit := 250000, insured := fun _ _ => {cover}, \
-                 Customer_deposits := fun _ => [d], m6 := {m6}, m12 := {m12} }}\n  \
+                 Customer_deposits := fun _ => [d], bucket := fun dt => if dt < {m6} then 0 else if dt < {m12} then 1 else 2 }}\n  \
                  (measure_Arf210_1A W {m} d, measure_Arf210_6 W {m} d))",
                 d.within_30_days,
                 d.called,

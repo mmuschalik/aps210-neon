@@ -2,6 +2,7 @@ import Prudence.DSL
 import Prudence.JSON
 import Prudence.SQL
 import Prudence.Canonical
+import Prudence.ModelGen
 import Prudence.Specs.Forms.Arf210_1A
 import Prudence.Specs.Forms.Arf210_1B
 import Prudence.Specs.Forms.Arf210_2
@@ -83,3 +84,26 @@ def main (args : List String) : IO Unit := do
     IO.FS.writeFile irPath  (fileJson (moduleFile m) ++ "\n")
     IO.FS.writeFile sqlPath (compileModule m)
     IO.println s!"exported module {m.name} -> {irPath} & {sqlPath}"
+
+  -- Regenerate all 7 Lean 4 proof models directly from the Lean 4 DSL specs.
+  let lcrW := Prudence.ModelGen.formWeights Prudence.Specs.Forms.Arf210_1A.spec
+  let nsfrF := Prudence.ModelGen.formFactors Prudence.Specs.Forms.Arf210_6.spec
+  let secTail := "-- ARF 210.1A adjustment formulas\n\n" ++
+    Prudence.ModelGen.formCells Prudence.Specs.Forms.Arf210_1A.spec [
+      ("1.5.1", "arf_1_5_1"), ("2.5.1", "arf_2_5_1"),
+      ("3.4.1", "arf_3_4_1"), ("3.5.1", "arf_3_5_1")
+    ]
+  let modelSpecs : List (String × Module × List (String × Prudence.ModelGen.Measure) × String) := [
+    ("RetailSme",      Prudence.Specs.Modules.RetailSme.spec,      [("Arf210_1A", lcrW), ("Arf210_6", nsfrF)], ""),
+    ("Wholesale",      Prudence.Specs.Modules.Wholesale.spec,      [("Arf210_1A", lcrW), ("Arf210_6", nsfrF)], ""),
+    ("SecuredFunding", Prudence.Specs.Modules.SecuredFunding.spec, [], secTail),
+    ("Loans",          Prudence.Specs.Modules.Loans.spec,          [("Arf210_6", nsfrF)], ""),
+    ("Derivatives",    Prudence.Specs.Modules.Derivatives.spec,    [], ""),
+    ("Funding",        Prudence.Specs.Modules.Funding.spec,        [], ""),
+    ("Commitments",    Prudence.Specs.Modules.Commitments.spec,    [], "")
+  ]
+  let modelsDir := root / "lean" / "Prudence"
+  for (fileName, mod, targets, tail) in modelSpecs do
+    let modelPath := modelsDir / s!"{fileName}.lean"
+    IO.FS.writeFile modelPath (Prudence.ModelGen.generateModel mod targets tail)
+    IO.println s!"generated Lean proof model {mod.name} -> {modelPath}"
