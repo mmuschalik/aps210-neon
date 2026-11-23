@@ -1,9 +1,9 @@
 //! Classify retail and SME deposits into ARF 210.1A/1B outflow items and ARF
 //! 210.6 ASF items.
 //!
-//! The rules live in `specs/deposits/retail_sme.prd` (Prudence) and are run by
+//! The rules live in `lean/Prudence/Specs/Modules/RetailSme.lean` and are run by
 //! the interpreter; this module only validates inputs, runs the spec, and maps
-//! its outputs onto the form specs (`specs/arf210/*.prd`), which supply the
+//! its outputs onto the form specs (`lean/Prudence/Specs/Forms/`), which supply the
 //! LCR run-off rates. Every slice carries the `@cite`s of the rules applied.
 
 use std::collections::{BTreeMap, HashSet};

@@ -1,7 +1,7 @@
 //! Secured funding and lending (APS 210 Att A para 8; ARF 210.1A items 11, 19
 //! and the adjusted HQLA items 1.5.1, 2.5.1, 3.4.1, 3.5.1).
 //!
-//! The rules are the Prudence module specs/secured/secured_funding.prd. This
+//! The rules are the Prudence Lean 4 spec `lean/Prudence/Specs/Modules/SecuredFunding.lean`. This
 //! crate holds the data model, the loader into Prudence records, and the two
 //! views the module defines: what each transaction reports in ARF 210.1A, and
 //! the mechanical 30-day unwind. lean/Prudence/UnwindProofs.lean proves the

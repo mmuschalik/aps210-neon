@@ -3,8 +3,8 @@ import Prudence.SecuredFunding
   design.txt §4.A.4: "formally prove that classify_HQLA(Portfolio_Unwound)
   equals APRA's ARF 210.1A derived form equations for all valid portfolios".
 
-  About the model GENERATED from specs/secured/secured_funding.prd and the
-  formulas GENERATED from specs/arf210/arf_210_1a.prd: for every portfolio of
+  About the model GENERATED from Prudence.Specs.Modules.SecuredFunding and the
+  formulas GENERATED from Prudence.Specs.Forms.Arf210_1A: for every portfolio of
   repos and reverse repos, the mechanical 30-day unwind of each HQLA class
   (`unwind`) equals the ARF 210.1A adjustment item (1.5.1, 2.5.1, 3.4.1,
   3.5.1) computed from what the portfolio reports in items 11 and 19

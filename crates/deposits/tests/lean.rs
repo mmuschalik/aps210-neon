@@ -1,7 +1,7 @@
 //! The Lean model generated from the spec, and the proofs about it.
 //!
 //! 1. lean/Prudence/RetailSme.lean is exactly what the generator produces
-//!    from specs/deposits/retail_sme.prd (it is never edited by hand).
+//!    from lean/Prudence/Specs/Modules/RetailSme.lean (it is never edited by hand).
 //! 2. The Lake project builds: the generated model and lean/Prudence/Proofs.lean
 //!    (both deposit theorems), with no `sorry` and only standard axioms.
 //! 3. On generated books with one deposit per holder, every deposit's measures

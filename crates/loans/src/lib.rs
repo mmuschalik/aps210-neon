@@ -1,6 +1,6 @@
 //! Loans (ACTUS ANN / LAM / PAM / UMP): LCR inflows (ARF 210.1A item 20) and
 //! NSFR required stable funding (ARF 210.6 items 24, 35-37, 39). The rules are
-//! the Prudence module specs/loans/loans.prd.
+//! the Prudence Lean 4 spec `lean/Prudence/Specs/Modules/Loans.lean`.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;

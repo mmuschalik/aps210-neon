@@ -1,5 +1,5 @@
 //! Off-balance sheet outflows (ARF 210.1A items 14, 15, 16). The rules are the
-//! Prudence module specs/obligations/commitments.prd; this crate holds the data
+//! Prudence Lean 4 spec `lean/Prudence/Specs/Modules/Commitments.lean`; this crate holds the data
 //! model, the loader, and `run()`, which fills the form's input items.
 
 pub mod lookback;

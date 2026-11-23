@@ -1,5 +1,5 @@
 /-
-  Proofs about the Lean model generated from specs/deposits/wholesale.prd
+  Proofs about the Lean model generated from Prudence.Specs.Modules.Wholesale
   (lean/Prudence/Wholesale.lean). Hand-written; the model is not.
 -/
 import Prudence.Wholesale

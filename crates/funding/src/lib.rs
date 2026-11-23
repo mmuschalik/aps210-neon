@@ -1,5 +1,5 @@
 //! Debt securities issued, regulatory capital and deposits placed with other
-//! ADIs: specs/funding/funding.prd.
+//! ADIs: `lean/Prudence/Specs/Modules/Funding.lean`.
 
 use std::sync::OnceLock;
 

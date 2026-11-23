@@ -1,4 +1,4 @@
-//! Wholesale deposits: specs/deposits/wholesale.prd (operational and
+//! Wholesale deposits: `lean/Prudence/Specs/Modules/Wholesale.lean` (operational and
 //! non-operational deposits of corporates, sovereigns, banks and other FIs).
 
 use std::collections::BTreeMap;

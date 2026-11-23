@@ -1,4 +1,4 @@
-//! Run the Prudence source of the deposit rules (specs/deposits/retail_sme.prd)
+//! Run the Prudence Lean 4 spec (`lean/Prudence/Specs/Modules/RetailSme.lean`)
 //! over a `Book`: load records and events into a Prudence `World`, interpret.
 
 use std::sync::OnceLock;

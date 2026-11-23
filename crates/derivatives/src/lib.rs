@@ -1,4 +1,4 @@
-//! Derivatives and collateral: specs/derivatives/derivatives.prd.
+//! Derivatives and collateral: `lean/Prudence/Specs/Modules/Derivatives.lean`.
 //! ARF 210.1A items 13.1-13.7 and 21.1; ARF 210.6 items 13.1.x, 40.1.x, 42.1.
 
 pub mod collateral;

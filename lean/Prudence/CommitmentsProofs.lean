@@ -1,5 +1,5 @@
 /-
-  Proofs about the Lean model generated from specs/obligations/commitments.prd.
+  Proofs about the Lean model generated from Prudence.Specs.Modules.Commitments.
 -/
 import Prudence.Commitments
 

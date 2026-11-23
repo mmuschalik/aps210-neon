@@ -1,6 +1,6 @@
 import Prudence.RetailSme
 /-!
-  Proofs of the two theorems of specs/deposits/retail_sme.prd, about the Lean
+  Proofs of the two theorems of Prudence.Specs.Modules.RetailSme, about the Lean
   model GENERATED from that spec (Prudence/RetailSme.lean):
 
     theorem unknowns_are_prudent
@@ -295,7 +295,7 @@ def total (g : Deposit → Int) : List Deposit → Int
   | [] => 0
   | d :: ds => g d + total g ds
 
-/-- **theorem unknowns_are_prudent** (retail_sme.prd): in a book with one
+/-- **theorem unknowns_are_prudent** (`RetailSme`): in a book with one
     deposit per holder and no SME, missing data never lowers the reported LCR
     outflow (ARF 210.1A) and never raises the reported ASF (ARF 210.6). -/
 theorem unknowns_are_prudent (W : World) (ds : List Deposit) (h : ∀ d ∈ ds, Prudent W d) :
@@ -331,7 +331,7 @@ theorem class_sme_ne_fi (W : World) (m : Mode) (c : Customer) (hk : c.kind = .Sm
   simp only [hk]
   split <;> simp
 
-/-- **theorem sme_cliff_never_increases_stable_funding** (retail_sme.prd), per
+/-- **theorem sme_cliff_never_increases_stable_funding** (`RetailSme`), per
     deposit: when the SME's group total crosses AUD 2m, the deposit's ASF does
     not increase, in either mode, whatever the FCS cover before. -/
 theorem sme_cliff_deposit (W : World) (m : Mode) (G : Mode → Option GroupId → SmeGroups_row)

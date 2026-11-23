@@ -1,6 +1,6 @@
 //! Prudence core: the smallest useful slice of the Prudence language from
 //! `design.txt` - a total expression IR over regulatory form cells, exact
-//! rational arithmetic, a `.prd` spec parser with static validation, and an
+//! rational arithmetic, a Lean 4 IR JSON loader with static validation, and an
 //! evaluator.
 
 pub mod cite;

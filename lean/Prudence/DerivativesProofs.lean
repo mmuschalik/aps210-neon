@@ -1,5 +1,5 @@
 /-
-  Proofs about the Lean model generated from specs/derivatives/derivatives.prd.
+  Proofs about the Lean model generated from Prudence.Specs.Modules.Derivatives.
 -/
 import Prudence.Derivatives
 

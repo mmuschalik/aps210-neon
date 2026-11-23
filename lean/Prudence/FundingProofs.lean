@@ -1,5 +1,5 @@
 /-
-  Proofs about the Lean model generated from specs/funding/funding.prd.
+  Proofs about the Lean model generated from Prudence.Specs.Modules.Funding.
 -/
 import Prudence.Funding
 
