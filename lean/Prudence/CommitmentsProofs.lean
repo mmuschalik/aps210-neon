@@ -1,7 +1,7 @@
 /-
   Proofs about the Lean model generated from Prudence.Specs.Modules.Commitments.
 -/
-import Prudence.Commitments
+import Prudence.Generated.Commitments
 
 namespace Commitments
 

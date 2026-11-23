@@ -1,7 +1,7 @@
 /-
   Proofs about the Lean model generated from Prudence.Specs.Modules.Funding.
 -/
-import Prudence.Funding
+import Prudence.Generated.Funding
 
 namespace FundingAndPlacements
 

@@ -2,7 +2,7 @@
   Proofs about the Lean model generated from Prudence.Specs.Modules.Loans
   (lean/Prudence/Loans.lean). Hand-written; the model is not.
 -/
-import Prudence.Loans
+import Prudence.Generated.Loans
 
 namespace Loans
 

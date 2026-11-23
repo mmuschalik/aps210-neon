@@ -1,4 +1,4 @@
-import Prudence.RetailSme
+import Prudence.Generated.RetailSme
 /-!
   Proofs of the two theorems of Prudence.Specs.Modules.RetailSme, about the Lean
   model GENERATED from that spec (Prudence/RetailSme.lean):

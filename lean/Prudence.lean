@@ -2,18 +2,18 @@ import Prudence.DSL
 import Prudence.JSON
 import Prudence.SQL
 import Prudence.Canonical
-import Prudence.RetailSme
+import Prudence.Generated.RetailSme
 import Prudence.Proofs
-import Prudence.SecuredFunding
+import Prudence.Generated.SecuredFunding
 import Prudence.UnwindProofs
-import Prudence.Wholesale
+import Prudence.Generated.Wholesale
 import Prudence.WholesaleProofs
-import Prudence.Loans
+import Prudence.Generated.Loans
 import Prudence.LoansProofs
-import Prudence.Commitments
+import Prudence.Generated.Commitments
 import Prudence.CommitmentsProofs
-import Prudence.Funding
+import Prudence.Generated.Funding
 import Prudence.FundingProofs
-import Prudence.Derivatives
+import Prudence.Generated.Derivatives
 import Prudence.DerivativesProofs
 /-! Prudence Lean 4 DSL, IR/SQL compilers, models, and machine-checked proofs. -/

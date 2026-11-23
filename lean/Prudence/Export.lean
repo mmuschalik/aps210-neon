@@ -102,7 +102,8 @@ def main (args : List String) : IO Unit := do
     ("Funding",        Prudence.Specs.Modules.Funding.spec,        [], ""),
     ("Commitments",    Prudence.Specs.Modules.Commitments.spec,    [], "")
   ]
-  let modelsDir := root / "lean" / "Prudence"
+  let modelsDir := root / "lean" / "Prudence" / "Generated"
+  IO.FS.createDirAll modelsDir
   for (fileName, mod, targets, tail) in modelSpecs do
     let modelPath := modelsDir / s!"{fileName}.lean"
     IO.FS.writeFile modelPath (Prudence.ModelGen.generateModel mod targets tail)

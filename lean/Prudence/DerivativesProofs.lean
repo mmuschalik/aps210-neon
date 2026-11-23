@@ -1,7 +1,7 @@
 /-
   Proofs about the Lean model generated from Prudence.Specs.Modules.Derivatives.
 -/
-import Prudence.Derivatives
+import Prudence.Generated.Derivatives
 
 namespace Derivatives
 

@@ -1,4 +1,4 @@
-import Prudence.SecuredFunding
+import Prudence.Generated.SecuredFunding
 /-!
   design.txt §4.A.4: "formally prove that classify_HQLA(Portfolio_Unwound)
   equals APRA's ARF 210.1A derived form equations for all valid portfolios".

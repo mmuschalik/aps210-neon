@@ -150,7 +150,7 @@ fn generated_model_agrees_with_the_interpreter() {
             n += 1;
         }
     }
-    let src = format!("import Prudence.Loans\nopen Loans\n\n{guards}");
+    let src = format!("import Prudence.Generated.Loans\nopen Loans\n\n{guards}");
     let (ok, out) = lean_file("Differential", &src);
     let failures: Vec<&str> = out.lines().filter(|l| l.contains("error")).take(5).collect();
     assert!(ok, "{n} loans; first failures:\n{}", failures.join("\n"));
